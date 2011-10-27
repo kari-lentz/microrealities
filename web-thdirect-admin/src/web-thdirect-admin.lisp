@@ -135,79 +135,14 @@
       (let ((ret (make-valid-user-id first-name last-name (ppcre:split ":" user-ids))))
 	  (str ret))))
 
-(defun compose-html-email(user-id user-password)
-  (with-html-output-to-string (*standard-output* nil)
-    (:html 
-     (:head (:style :type "text/css" "strong.th{font-weight:bold;}strong.th-acc{font-weight:bold;color:#ff0000}strong.th-extra{color:green;font-weight:bold;text-decoration:underline}"))
-     (:body
-      (:p (:strong :class "th" "Dear Valued Top Hits U.S.A. Client - "))
-      (:br)
-
-      (:p "First, let me thank you for your continued good business.  We appreciate you and we look forward to continuing to deliver the best products and customer service.")
-      (:br)
-
-      (:p "We are very pleased to inform you of another enhancement to your Top Hits music update service.  Now you can access the new hit releases directly by using our new application Top Hits Direct.  You can now download the newest Top Hits as they are added, often on a daily basis.")  
-      (:br)
-
-      (:p (:strong "Best of all, you will still receive your present disc service with no changes.  There is " (:strong :class "th-extra" "no added cost")" for the addition of Top Hits Direct! "))
-      (:br)
-
-      (:p (:div "To install Top Hits Direct, click on the following link:"))
-      (:p
-	  (:a :href "http://www.tophitsdirect.com/install/EmbedDemo.html" "http://www.tophitsdirect.com/install/EmbedDemo.html"))
-      (:br)
-	  
-      (:p "User ID:" (:strong :class "th-acc" (str user-id)))
-      (:p  "Password:" (:strong :class "th-acc" (str user-password)))
-      (:br)
-      (:p "You can change your password as needed.")
-      (:br)
-
-      (:p (:strong "Your monthly service rate will not change&nbsp;") "with the addition of Top Hits Direct.&nbsp;&nbsp;"  (:strong :class "th-extra" "You will continue to receive your discs.") "&nbsp;&nbsp;If you subscribe to our Music Video service, you will continue to receive the videos on disc just as before.  The videos will be offered on the Top Hits Direct service sometime in December or January.")
-      (:br)
-
-      (:p "If you have any questions, please email tophitsdirect@tophitsusa.com or call 800-521-2537.  We look forward to serving you and thank you again for your business!")
-      (:br)
-      (:p "Best regards,")
-      (:br)
-      (:p "Tom Krikorian, President")))))
-
-(defun compose-text-email(user-id user-password) 
-  (with-output-to-string (fo)
-    (flet ((fout(&optional (s ""))
-	     (write-line s fo)))
-      (fout "Dear Valued Top Hits U.S.A. Client - ")
-      (fout)
-      (fout "First, let me thank you for your continued good business.  We appreciate you and we look forward to continuing to deliver the best products and customer service.")
-      (fout)
-      (fout "We are very pleased to inform you of another enhancement to your Top Hits music update service.  Now you can access the new hit releases directly by using our new application Top Hits Direct.  You can now download the newest Top Hits as they are added, often on a daily basis.")  
-      (fout)
-      (fout "Best of all, you will still receive your present disc service with no changes.  There is no added cost for the addition of Top Hits Direct! ")
-
-      (fout)
-      (fout "To install Top Hits Direct go to the following link:  http://www.tophitsdirect.com/install/EmbedDemo.html")
-      (fout)
-      
-      (fout (% "User ID:  ~a" user-id))
-      (fout  (% "Password:  ~a" user-password))
-      (fout)
-
-      (fout "You can change your password as needed.")
-      (fout)
-
-      (fout "Your monthly service rate will not change with the addition of Top Hits Direct.  You will continue to receive your discs.  If you subscribe to our Music Video service, you will continue to receive the videos on disc just as before.  The videos will be offered on the Top Hits Direct service sometime in December or January.")
-
-      (fout)
-
-      (fout "If you have any questions, please email tophitsdirect@tophitsusa.com or call 800-521-2537.  We look forward to serving you and thank you again for your business!")
-
-      (fout)
-
-      (fout "Best regards,")
-
-      (fout)
-      
-      (fout "Tom Krikorian, President"))))
+(defun log-error( msg &optional (error-o nil) )
+  (let ((err-msg 
+	 (if error-o 
+	     (% "~a ~a" msg error-o)
+	     (% "~a" msg))))
+    (progn
+      (log-message 0 err-msg)
+      err-msg)))
 
 (define-easy-handler (account-welcome :uri "/account/welcome"
                                 :default-request-type :post)
@@ -215,15 +150,23 @@
      (user-password :parameter-type 'string)
      (email-address :parameter-type 'string))
 
-  (if (and user-id user-password email-address)
-      (if (send-email email-address user-id user-password)
-	  "SUCCESS"
-	  "INCOMPLETE-INFO")))
+  (handler-case
+      (if (and user-id user-password email-address)
+	  (progn
+	    (send-email email-address user-id user-password)
+	    "SUCCESS")
+	  "INCOMPLETE-INFO")
+    (email-error(error-o)(log-error "error while ending email" error-o))
+    (error(error-o) (log-error "error while ending email" error-o))))
 	
 (defun get-welcome-stragglers()
   (with-databases
-    (loop for (user-id user-password email-address) in (query-local "select user_id, user_password, email_address from WEB_USER where welcome_email is null and email_address like '%@%' and client_id <> 100") do 
-	 (send-email email-address user-id user-password))))
+    (loop for (user-id user-password email-address) in (query-local "select user_id, user_password, email_address from WEB_USER where welcome_email is null and email_address like '%@%' and client_id <> 100") do
+	 (handler-case
+	     (send-email email-address user-id user-password)
+	   (email-error(error-o)(log-error "error while ending email" error-o))
+	   (error (error-o) (log-error "error while ending email" error-o))))))
+	   
 
 (define-easy-handler (account-welcome-batch :uri "/account/welcome-batch"
                                 :default-request-type :get)

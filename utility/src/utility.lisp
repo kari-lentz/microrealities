@@ -12,9 +12,13 @@
 	   :with-no-package-lock
 	   :make-tree
 	   :[]
+	   :[nil]
+	   :{}
 	   :~
 	   :join
 	   :make-ctr
+	   :vmap
+	   :zip-hash
 	   :format-sql
 	   :str-to-ubyte
 	   :ubyte-to-str
@@ -24,6 +28,8 @@
 	   :disconnect-remote
 	   :query-remote
 	   :query-local
+	   :lists
+	   :vectors
 	   :with-local-db-conn
 	   :with-remote-db-conn
 	   :with-databases
@@ -177,9 +183,11 @@
   (when conn (progn
 	       (mssql:disconnect conn))))
 
-(defun query-local( sql )
-  (with-stdout-null (mssql:query sql :connection mssql:*database*)))
-
+(defun query-local( sql &key (out-format 'lists))
+  (let ((rows (with-stdout-null (mssql:query sql :connection mssql:*database*))))
+    (cond ((eq out-format 'vectors) (loop for row in rows collecting (vmap row)))
+	  (t rows))))
+	  
 (defmacro with-local-db-conn( &body frms )
   (let ((sym-ret (gensym)))
     `(progn
@@ -196,9 +204,11 @@
 (defun disconnect-remote( &optional (conn nil))
   (if conn (cl-mysql:disconnect conn) (cl-mysql:disconnect)))
 
-(defun query-remote( sql )
-  (car (car (cl-mysql:query sql))))
-
+(defun query-remote( sql &key (out-format 'lists))
+  (let ((rows (car (car (cl-mysql:query sql))))) 
+    (cond ((equal out-format 'vectors) (loop for row in rows collecting (vmap row)))
+	  (t rows))))
+  
 (defmacro with-remote-db-conn(&body frms )
   (let ((sym-ret (gensym)) (sym-conn (gensym)))
     `(let ((,sym-conn (connect-remote)))
@@ -214,3 +224,9 @@
   (if (and (stringp str) (> (length str) 0)) 
       str
       nil))
+
+(defun zip-hash( seq-1 seq-2 )
+  (let ((ht (make-hash-table)))
+    (loop for (x y) in (mapcar (lambda(x y) (list x y)) seq-1 seq-2) do (setf (gethash x ht) y))
+    ht))
+

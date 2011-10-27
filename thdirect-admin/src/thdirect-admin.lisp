@@ -12,7 +12,8 @@
 	   :add-user
 	   :update-user
 	   :delete-user
-	   :send-email))
+	   :send-email
+	   :email-error))
 
 (in-package :thdirect-admin)
 
@@ -95,7 +96,7 @@
 
   (let ((user-id-final (or user-id (make-user-id first-name last-name))))
     (let ((user-password-final (or user-password (make-password client-id user-id-final)))) 
-      (let ((welcome-email-p (if (equal welcome-email-str "Y") welcome-email-str nil)))
+      (let ((welcome-email-p (if (find welcome-email-str (list "Y" "F") :test #'equal) welcome-email-str nil)))
 	(add-user-local client-id first-name last-name :email email :company-name company-name :telephone telephone :user-id user-id-final :user-password user-password-final :welcome-email-p welcome-email-p :created-by created-by)
 	(add-user-remote client-id first-name last-name :email email :company-name company-name :telephone telephone :user-id user-id-final :user-password user-password-final :welcome-email-p welcome-email-p :created-by created-by)))))
 
@@ -126,7 +127,7 @@
 
       (:p (:div "To install Top Hits Direct, click on the following link:"))
       (:p
-	  (:a :href "http://www.tophitsdirect.com/install/EmbedDemo.html" "http://www.tophitsdirect.com/install/EmbedDemo.html"))
+	  (:a :href "http://www.tophitsdirect.com/install/welcome.psp" "http://www.tophitsdirect.com/install/welcome.psp"))
       (:br)
 	  
       (:p "User ID:" (:strong :class "th-acc" (str user-id)))
@@ -157,7 +158,7 @@
       (fout "Best of all, you will still receive your present disc service with no changes.  There is no added cost for the addition of Top Hits Direct! ")
 
       (fout)
-      (fout "To install Top Hits Direct go to the following link:  http://www.tophitsdirect.com/install/EmbedDemo.html")
+      (fout "To install Top Hits Direct go to the following link:  http://www.tophitsdirect.com/install/welcome.psp")
       (fout)
       
       (fout (% "User ID:  ~a" user-id))
@@ -181,17 +182,32 @@
       
       (fout "Tom Krikorian, President"))))
 
+(define-condition email-error 
+    (error)
+  ((address :initarg :email-address
+	:reader email-error-address)
+   (object :initarg :error-object
+	:reader email-error-object))
+  (:report (lambda (condition stream)
+             (format stream "email error->address:~a ~a" (email-error-address condition) (email-error-object condition)))))
+
 (defun send-email(email-address user-id user-password)
   (with-databases
     (progn
-      (cl-smtp:send-email
-       +mail-server+
-       "tophitsdirect@tophitsusa.com"
-       email-address
-       "Welcome to Top Hits Direct"
-       (compose-text-email user-id user-password)
-       :html-message (compose-html-email user-id user-password))
-
+      (handler-case
+	  (cl-smtp:send-email
+	   +mail-server+
+	   "tophitsdirect@tophitsusa.com"
+	   email-address
+	   "Welcome to Top Hits Direct"
+	   (compose-text-email user-id user-password)
+	   :html-message (compose-html-email user-id user-password))
+	(error(error-o)
+	  (progn
+	    (let ((sql (% "update WEB_USER set WELCOME_EMAIL = 'F' where user_id = '~a'" user-id)))
+	      (query-remote sql)
+	      (query-local sql))
+	    (error (make-condition 'email-error :email-address email-address :error-object error-o))))) 
       (let ((sql (% "update WEB_USER set WELCOME_EMAIL = 'Y' where user_id = '~a'" user-id)))
 	(query-remote sql)
 	(query-local sql))
