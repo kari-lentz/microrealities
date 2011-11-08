@@ -4,7 +4,6 @@
   :author "Kari Lentz <kari_lentz@amemusic.com>"
   :maintainer "Kari Lentz <kari_lentz@amemusic.com>"
   :licence "?"
-  :depends-on (#:utility)
   :components
   ((:module src
 	    :components

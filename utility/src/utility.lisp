@@ -4,6 +4,8 @@
   (:export :%
 	   :string-to-list
 	   :range
+	   :lazy-chain-or
+	   :lazy-chain-and
 	   :chain-and
 	   :chain-or
 	   :post-fix
@@ -17,48 +19,29 @@
 	   :~
 	   :join
 	   :make-ctr
-	   :vmap
-	   :zip-hash
-	   :format-sql
 	   :str-to-ubyte
 	   :ubyte-to-str
-	   :connect-local
-	   :connect-remote
-	   :disconnect-local
-	   :disconnect-remote
-	   :query-remote
-	   :query-local
-	   :lists
-	   :vectors
-	   :with-local-db-conn
-	   :with-remote-db-conn
-	   :with-databases
 	   :make-nil-str
-	   :*remote-host*
-	   :*remote-user-id*
-	   :*remote-password*
-	   :*remote-database*
-	   :*local-host*
-	   :*local-user-id*
-	   :*local-password*
-	   :*local-database*))
+	   :vmap
+	   :.sym
+	   :sym-to-db-var
+	   :zip-hash
+	   :zip
+	   :dts-t
+	   :make-dts-now
+	   :make-dts
+	   :bad-dts-error
+	   :make-dts-from-ut
+	   :dts-p
+	   :dts-ut
+	   :remove-nil
+	   :remove-unspeced-params))
 
 (in-package :utility)
-
-(defparameter *remote-host* nil)
-(defparameter *remote-user-id* nil)
-(defparameter *remote-password* nil)
-(defparameter *remote-database* nil)
-
-(defparameter *local-host* nil)
-(defparameter *local-user-id* nil)
-(defparameter *local-password* nil)
-(defparameter *local-database* nil)
 
 (defmacro %(fmt-str &rest args)
   (let ((ret (gensym)))
     `(with-output-to-string (,ret) (format (,@ret) ,fmt-str ,@args))))
-(defstruct dts ut)
 
 (defparameter *I* (lambda(x)x))
 
@@ -71,13 +54,30 @@
 		 acc
 		 (range-t (1- i) (cons i acc)))))
     (range-t (1- (+ n lo)) nil)))
-	     
+
 (defun chain-and(seq)
-  (if (eq seq nil)
-      t
-      (and (funcall (car seq)) (chain-and (cdr seq)))))
+  (labels 
+      ((chain-and-r(acc seq)
+	 (if (eq seq nil)
+	     acc
+	     (and (car seq) (chain-and-r (car seq) (cdr seq))))))
+    (chain-and-r nil seq)))
 
 (defun chain-or(seq)
+  (if (eq seq nil)
+      nil
+      (or (car seq) (chain-or (cdr seq)))))
+	     
+(defun lazy-chain-and(seq)
+  (labels 
+      ((lazy-chain-and-r(acc seq)
+	 (if (eq seq nil)
+	     acc
+	     (let ((res (funcall (car seq))))
+	       (and res (lazy-chain-and-r res (cdr seq)))))))
+    (lazy-chain-and-r nil seq)))
+
+(defun lazy-chain-or(seq)
   (if (eq seq nil)
       nil
       (or (funcall (car seq)) (chain-or (cdr seq)))))
@@ -86,7 +86,6 @@
   (let ((ret-name (gensym))) 
     `(let ((,ret-name ,expr)) (progn ,imperative ,ret-name))))
   
-
 (defun debug-print(x &optional (fplace (lambda(x) x)))
   (progn
     (format t "{~a}" (funcall fplace x))
@@ -100,7 +99,6 @@
   `(locally (declare (sb-ext:disable-package-locks ,fnlocked))
      ,@frm
      (declare (sb-ext:enable-package-locks ,fnlocked))))
-
     
 (defun make-tree( data-tree &optional (fkey (lambda(x)x)))
   (labels ((make-tree-rec(seq tree-acc acc o-prev)
@@ -138,6 +136,11 @@
 
 (defun [nil] (ht key)
   (handler-case ([] ht key) (key-error () nil)))
+
+(defun set-my-hash(ht key v)
+  (setf (gethash key ht) v))
+
+(defsetf [] set-my-hash)
   
 (defun ~( regex str)
   (multiple-value-bind (begin-match end-match begin-groups end-groups) (ppcre:scan regex str)
@@ -148,77 +151,19 @@
 (defun vmap( seq )
   (map 'vector (lambda(n)n) seq))
 
-
 (defun join( delim str-list)
   (and str-list (if (cdr str-list) 
 		    (reduce (lambda(x y) (% "~a~a~a" x delim y)) str-list)
 		    (% "~a" (car str-list)))))
 
 (defun make-ctr( init &optional (delta 1) )
-  (lambda()(incf init delta)))
-
-(defun format-sql( arg )
-    (cond ((not arg) "null")
-	  ((integerp arg) (% "~a" arg))
-	  ((stringp arg) (% "'~a'" arg))
-	  ((dts-p arg) (multiple-value-bind (second minute hour date month year)
-			   (decode-universal-time (dts-ut arg)) (% "'~a/~a/~a ~a:~a:~a" year month date hour minute second)))
-	  (t (string arg))))
-
-(defmacro with-stdout-null( &body frm )
-  `(with-open-file (*standard-output* "/dev/null" :direction :output :if-exists :append) ,@frm))
+  (lambda()(post-fix init (incf init delta))))
 	  
 (defun str-to-ubyte( str )
   (map '(vector (unsigned-byte 8)) (lambda(c) (char-code c)) str))
 
 (defun ubyte-to-str( bytes )
   (map 'string (lambda(byt)(code-char byt)) bytes))
-
-(defun connect-local( &optional (host *local-host*) (database *local-database*) ) 
-   (with-stdout-null
-     (let ((ret (mssql:connect database *local-user-id* *local-password* host :external-format :latin-1)))
-       ret)))
-
-(defun disconnect-local( &optional (conn nil))
-  (when conn (progn
-	       (mssql:disconnect conn))))
-
-(defun query-local( sql &key (out-format 'lists))
-  (let ((rows (with-stdout-null (mssql:query sql :connection mssql:*database*))))
-    (cond ((eq out-format 'vectors) (loop for row in rows collecting (vmap row)))
-	  (t rows))))
-	  
-(defmacro with-local-db-conn( &body frms )
-  (let ((sym-ret (gensym)))
-    `(progn
-       (let ((mssql:*database* (connect-local)))
-	 (let ((,sym-ret (unwind-protect (progn ,@frms)
-			   (disconnect-local mssql:*database*))))
-	   ,sym-ret)))))
-
-(defun connect-remote( &optional (host *remote-host*) (database *remote-database*) )
-  (let ((ret (cl-mysql:connect :host host :user *remote-user-id* :password *remote-password* :database database)))
-       (cl-mysql:query "set names 'utf8'")
-       ret))
-
-(defun disconnect-remote( &optional (conn nil))
-  (if conn (cl-mysql:disconnect conn) (cl-mysql:disconnect)))
-
-(defun query-remote( sql &key (out-format 'lists))
-  (let ((rows (car (car (cl-mysql:query sql))))) 
-    (cond ((equal out-format 'vectors) (loop for row in rows collecting (vmap row)))
-	  (t rows))))
-  
-(defmacro with-remote-db-conn(&body frms )
-  (let ((sym-ret (gensym)) (sym-conn (gensym)))
-    `(let ((,sym-conn (connect-remote)))
-       (let ((,sym-ret (unwind-protect (progn ,@frms)
-	 (disconnect-remote ,sym-conn))))
-	 ,sym-ret))))
-
-(defmacro with-databases(&body frms)
-  `(with-remote-db-conn
-     (with-local-db-conn ,@frms)))
 
 (defun make-nil-str( str )
   (if (and (stringp str) (> (length str) 0)) 
@@ -229,4 +174,58 @@
   (let ((ht (make-hash-table)))
     (loop for (x y) in (mapcar (lambda(x y) (list x y)) seq-1 seq-2) do (setf (gethash x ht) y))
     ht))
+
+(defun zip(&rest lists)
+  (labels 
+      ((zip-r(acc lists)
+	 (if (not (chain-and lists))
+	     (reverse acc)
+	     (zip-r (cons (mapcar (lambda(list) (car list)) lists) acc) (mapcar (lambda(list) (cdr list)) lists)))))
+    (zip-r nil lists)))
+
+(defun .sym(&rest syms)
+  (multiple-value-bind (ret)(intern (apply 'concatenate 'string (loop for sym in syms collecting (symbol-name sym))))ret))
+
+(defun sym-to-db-var( sym )
+  (multiple-value-bind (ret)
+      (ppcre:regex-replace "-" (symbol-name sym) "_") 
+  ret))
+
+(define-condition bad-dts-error (error)
+  ((date-int :initarg :int
+	:reader bad-dts-error-int))
+  (:report (lambda (condition stream)
+             (format stream "bad-dts-error parsing ut: ~a" (bad-dts-error-int condition)))))
+
+(defstruct dts-t ut)
+
+(defun make-dts(year month day hour minute second)
+  (make-dts-t :ut (encode-universal-time second minute hour day month year)))
+
+(defun make-dts-now()
+  (make-dts-t :ut (get-universal-time)))
+
+(defun make-dts-from-ut( ut )
+  (if (numberp ut) 
+      (make-dts-t :ut ut)
+      (error (make-condition 'bad-dts-error :int ut)))) 
+
+(defun dts-p( arg )
+  (dts-t-p arg))
+
+(defun dts-ut( arg )
+  (dts-t-ut arg))
+
+(defmethod print-object((arg dts-t) s)
+  (handler-case
+      (multiple-value-bind (second minute hour date month year) (decode-universal-time (dts-t-ut arg)) (format s "~a-~a-~a ~a:~a:~a" year month date hour minute second))
+    (error() (format s "bad object"))))
+
+(defun remove-nil( seq )
+  (remove-if-not (lambda(x)x) seq))
+
+(defmacro remove-unspeced-params( &rest params )
+  `(remove-nil 
+    (list ,@(loop for param in params collecting 
+		 `(if ,(.sym param '-p) ,param nil)))))
 

@@ -4,7 +4,7 @@
   :author "Kari Lentz <kari_lentz@amemusic.com>"
   :maintainer "Kari Lentz <kari_lentz@amemusic.com>"
   :licence "?"
-  :depends-on (#:ironclad #:cl-who #:cl-smtp #:my-env)
+  :depends-on (#:ironclad #:cl-who #:cl-smtp #:my-db)
   :components
   ((:module src
 	    :components

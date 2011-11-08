@@ -1,11 +1,8 @@
-(asdf:defsystem #:utility
-  :description "Ame utilitites to make Common Lisp work better"
-  :version "0.1"
-  :author "Kari Lentz <kari_lentz@amemusic.com>"
-  :maintainer "Kari Lentz <kari_lentz@amemusic.com>"
-  :licence "?"
-  :depends-on (cl-mysql mssql cl-ppcre)
+(defsystem utility
+  :description "CL utility library"
+  :author "Kari Lentz  <karilentz@att.net>"
   :components
   ((:module src
-	    :components
-	    ((:file "utility")))))
+    :components
+    ((:file "utility"))))
+  :depends-on (cl-ppcre cffi))

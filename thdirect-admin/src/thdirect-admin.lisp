@@ -3,7 +3,7 @@
 
 (defpackage :thdirect-admin
   (:documentation "A for general purpose functions and macros")
-  (:use :cl :cl-who :utility)
+  (:use :cl :cl-who :utility :my-db)
   (:export :repeat-params 
 	   :make-user-id
 	   :make-password
@@ -50,7 +50,7 @@
 	  (if (> (length str) 8) (subseq str 0 8) str))))))
       
 (defun validate-user-id( user-id )
-  (let ((rows (with-local-db-conn
+  (let ((rows (with-local-db 
 		(query-local (% "select * from WEB_USER where user_id = ~a" (format-sql user-id))))))
     (if rows nil t)))
 	  
@@ -64,45 +64,56 @@
 	(setf gen-user-id (% "~a~a" orig-user-id idx)))
       gen-user-id)))
 
-(defun add-user-local( client-id first-name last-name &key (email nil) (company-name nil) (telephone nil) (user-id nil) (user-password nil) (welcome-email-p) (created-by "SYSTEM"))
+(defun query-expiration-date( client-id user-id )
 
-  (let ((user-id-final (or user-id (make-user-id first-name last-name))))
-    (let ((user-password-final (or user-password (make-password client-id user-id-final))))
+  (read-mssql-date (with-databases
+    (car (car (query-local (% "select EXPIRATION_DATE from BILLING.dbo.QRY_THDIRECT_EXPIRATION_DATES where CLIENT_ID = ~a and USER_ID = ~a" (format-sql client-id) (format-sql user-id))))))))
 
-      (query-local (% "delete from Web.dbo.WEB_USER where client_id = ~a and user_id = ~a" (format-sql client-id) (format-sql user-id-final))) 
-      (query-local (% "insert into Web.dbo.WEB_USER (USER_ID, USER_PASSWORD, CLIENT_ID, FIRST_NAME, LAST_NAME, COMPANY_NAME, TELEPHONE, EMAIL_ADDRESS, CREATED_DATE, CREATED_BY, WELCOME_EMAIL) values (~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, getdate(), ~a, ~a)" (format-sql user-id-final) (format-sql user-password-final) (format-sql client-id) (format-sql first-name) (format-sql last-name) (format-sql company-name) (format-sql telephone) (format-sql email) (format-sql created-by) (format-sql welcome-email-p))))))
+(defun add-user-local( client-id first-name last-name &key (email nil) (company-name nil) (telephone nil) (user-id nil) (user-password nil) (welcome-email-p nil) (expiration-date nil) (created-by "SYSTEM"))
+  
+  (let ((user-id (or user-id (make-user-id first-name last-name)))(welcome-email welcome-email-p)(email-address email)(created-date (make-dts-now)))
+    (let ((user-password (or user-password (make-password client-id user-id))))
+      
+      (query-local (make-db-delete web.dbo.web-user (client-id user-id)))
+      (query-local (make-db-insert web.dbo.web-user (client-id user-id user-password first-name last-name company-name telephone email-address created-by created-date welcome-email expiration-date))))))
 
-(defun add-user-remote( client-id first-name last-name &key (email nil) (company-name nil) (telephone nil) (user-id nil) (user-password nil) (welcome-email-p nil) (created-by "SYSTEM"))
+(defun add-user-remote( client-id first-name last-name &key (email nil) (company-name nil) (telephone nil) (user-id nil) (user-password nil) (welcome-email-p nil) (expiration-date nil) (created-by "SYSTEM"))
+  
+  (let ((user-id (or user-id (make-user-id first-name last-name)))(welcome-email welcome-email-p)(email-address email)(created-date (make-dts-now)))
+    (let ((user-password (or user-password (make-password client-id user-id))))
+      
+      (query-remote (make-db-delete web-user (client-id user-id)))
+      (query-remote (make-db-insert web-user (client-id user-id user-password first-name last-name company-name telephone email-address created-by created-date welcome-email expiration-date))))))
 
-  (let ((user-id-final (or user-id (make-user-id first-name last-name))))
-    (let ((user-password-final (or user-password (make-password client-id user-id-final))))
+(defun update-user-local(set-fields key-fields)
+  (query-local (make-db-update "Web.dbo.WEB_USER" set-fields key-fields)))
 
-      (query-remote (% "delete from WEB_USER where client_id = ~a and user_id = ~a" (format-sql client-id) (format-sql user-id-final))) 
-      (query-remote (% "insert into WEB_USER (USER_ID, USER_PASSWORD, CLIENT_ID, FIRST_NAME, LAST_NAME, COMPANY_NAME, TELEPHONE, EMAIL_ADDRESS, CREATED_DATE, CREATED_BY, WELCOME_EMAIL) values (~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, now(), ~a, ~a )" (format-sql user-id-final) (format-sql user-password-final) (format-sql client-id) (format-sql first-name) (format-sql last-name) (format-sql company-name) (format-sql telephone) (format-sql email) (format-sql created-by) (format-sql welcome-email-p))))))
-
-(defun update-user-local(client-id user-id user-password first-name last-name email &optional (company-name nil) (telephone nil))
-  (query-local (repeat-params (% "update Web.dbo.WEB_USER set user_password = ~a, first_name = ~a, last_name= ~a, email_address = ~a, company_name = ~a, telephone = ~a where client_id = ~a and user_id = ~a") format-sql user-password first-name last-name email company-name telephone client-id user-id)))
-
-(defun update-user-remote(client-id user-id user-password first-name last-name email &optional (company-name nil) (telephone nil))
-  (query-remote (repeat-params (% "update WEB_USER set user_password = ~a, first_name = ~a, last_name= ~a, email_address = ~a, company_name = ~a, telephone = ~a where client_id = ~a and user_id = ~a") format-sql user-password first-name last-name email company-name telephone client-id user-id)))
+(defun update-user-remote(set-fields key-fields)
+  (query-remote (make-db-update "WEB_USER" set-fields key-fields)))
 
 (defun delete-user-local(client-id user-id)
-  (query-local (repeat-params (% "delete from Web.dbo.WEB_USER where client_id = ~a and user_id = ~a") format-sql client-id user-id)))
+  (query-local (make-db-delete web.dbo.web-user (client-id user-id))))
 
 (defun delete-user-remote(client-id user-id)
-  (query-remote (repeat-params (% "delete from WEB_USER where client_id = ~a and user_id = ~a") format-sql client-id user-id)))
+  (query-remote (make-db-delete web-user (client-id user-id))))
 
-(defun add-user( client-id first-name last-name &key (email nil) (company-name nil) (telephone nil) (user-id nil) (user-password nil) (welcome-email-str nil) (created-by "SYSTEM"))
+(defun add-user( client-id first-name last-name &key (email nil) (company-name nil) (telephone nil) (user-id nil) (user-password nil) (welcome-email-str nil)(created-by "SYSTEM"))
 
-  (let ((user-id-final (or user-id (make-user-id first-name last-name))))
-    (let ((user-password-final (or user-password (make-password client-id user-id-final)))) 
+  (let ((user-id (or user-id (make-user-id first-name last-name))))
+    (let ((user-password (or user-password (make-password client-id user-id)))
+	  (expiration-date)) 
       (let ((welcome-email-p (if (find welcome-email-str (list "Y" "F") :test #'equal) welcome-email-str nil)))
-	(add-user-local client-id first-name last-name :email email :company-name company-name :telephone telephone :user-id user-id-final :user-password user-password-final :welcome-email-p welcome-email-p :created-by created-by)
-	(add-user-remote client-id first-name last-name :email email :company-name company-name :telephone telephone :user-id user-id-final :user-password user-password-final :welcome-email-p welcome-email-p :created-by created-by)))))
+	(add-user-local client-id first-name last-name :email email :company-name company-name :telephone telephone :user-id user-id :user-password user-password :welcome-email-p welcome-email-p :expiration-date expiration-date :created-by created-by)
+	(add-user-remote client-id first-name last-name :email email :company-name company-name :telephone telephone :user-id user-id :user-password user-password :welcome-email-p welcome-email-p :expiration-date expiration-date :created-by created-by)))))
 
-(defun update-user(client-id user-id user-password first-name last-name email &optional (company-name nil) (telephone nil))
-  (update-user-local client-id user-id user-password first-name last-name email company-name telephone)
-  (update-user-remote client-id user-id user-password first-name last-name email company-name telephone))
+(defun update-user(set-fields client-id user-id)
+  (let ((set-fields (cons 
+		 (make-db-field "EXPIRATION_DATE" (query-expiration-date client-id user-id)) 
+		 set-fields))
+	(where-fields (make-db-fields client-id user-id)))
+
+    (update-user-local set-fields where-fields)
+    (update-user-remote set-fields where-fields)))
 
 (defun delete-user(client-id user-id)
   (delete-user-local client-id user-id)

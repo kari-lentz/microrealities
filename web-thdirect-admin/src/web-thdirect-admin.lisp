@@ -1,5 +1,5 @@
 (defpackage :web-thdirect-admin
-  (:use :common-lisp :hunchentoot :cl-who :utility :thdirect-admin)
+  (:use :common-lisp :hunchentoot :cl-who :utility :my-db :thdirect-admin)
   (:export stop-server test-cl-who))
 
 (in-package :web-thdirect-admin)
@@ -73,14 +73,10 @@
        
 	(when modifier
 	  (with-databases
-	    (cond ((equal modifier "add")
-		   (progn
-		     (add-user client-id first-name last-name :email email :user-id (make-nil-str user-id) :user-password (make-nil-str user-password) :welcome-email-str welcome-email-str)))
-		  ((equal modifier "delete")
-		   (progn
-		     (delete-user client-id user-id)))
-		  (t
-		     (update-user client-id user-id user-password first-name last-name email)))))))))
+	    (let ((email-address email))
+	      (cond ((equal modifier "add") (add-user client-id first-name last-name :email email-address :user-id (make-nil-str user-id) :user-password (make-nil-str user-password) :welcome-email-str welcome-email-str))
+		    ((equal modifier "delete")(delete-user client-id user-id))
+		    (t (update-user (make-db-fields-no-nil user-password first-name last-name email-address) client-id user-id))))))))))
 
 (define-easy-handler (account-report :uri "/account/report"
 				  :default-request-type :post)
@@ -143,6 +139,20 @@
     (progn
       (log-message 0 err-msg)
       err-msg)))
+
+(define-easy-handler (account-touch-expiration-date :uri "/account/touch-expiration-date"
+                                :default-request-type :post)
+    ((client-id :parameter-type 'string)
+     (user-id :parameter-type 'string))
+
+  (with-databases
+    (update-user nil client-id user-id)
+    (with-html-output-to-string (*standard-output* nil :prologue nil)
+      (str
+       (read-mysql-date 
+	(car
+	 (car
+	  (query-remote (% "select EXPIRATION_DATE from WEB_USER where client_id = ~a and user_id = ~a" (format-sql client-id) (format-sql user-id))))))))))
 
 (define-easy-handler (account-welcome :uri "/account/welcome"
                                 :default-request-type :post)
