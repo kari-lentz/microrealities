@@ -183,12 +183,4 @@
 	  nil
 	  (error (make-condition 'mysql-date-error :int date :error-object error-o))))))
 
-(defun read-mysql-date( date &optional (ret-nil-on-error-p t))
-  (handler-case
-      (make-dts-from-ut date)
-    (error(error-o) 
-      (if ret-nil-on-error-p
-	  nil
-	  (error (make-condition 'mysql-date-error :int date :error-object error-o))))))
-
 
