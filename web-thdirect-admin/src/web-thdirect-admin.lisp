@@ -154,6 +154,25 @@
 	 (car
 	  (query-remote (% "select EXPIRATION_DATE from WEB_USER where client_id = ~a and user_id = ~a" (format-sql client-id) (format-sql user-id))))))))))
 
+(define-easy-handler (account-touch-expiration-date-remote :uri "/account/touch-expiration-date-remote"
+                                :default-request-type :post)
+    ((client-id :parameter-type 'string)
+     (user-id :parameter-type 'string)
+     (expiration-date :parameter-type 'string))
+  
+  (handler-case
+      (with-remote-db ()
+	     
+	(query-remote (% "update WEB_USER set expiration_date = ~a where client_id = ~a and user_id = ~a" (format-sql expiration-date) (format-sql client-id) (format-sql user-id)))
+	
+	(with-html-output-to-string (*standard-output* nil :prologue nil)
+	  (str
+	   (read-mysql-date 
+	    (car
+	     (car
+	      (query-remote (% "select EXPIRATION_DATE from WEB_USER where client_id = ~a and user_id = ~a" (format-sql client-id) (format-sql user-id)))))))))
+    (error (error-o) (log-error "error saving expiration date:" error-o)(setf (return-code* *reply*) 500))))
+	   
 (define-easy-handler (account-welcome :uri "/account/welcome"
                                 :default-request-type :post)
     ((user-id :parameter-type 'string)

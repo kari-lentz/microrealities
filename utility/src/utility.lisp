@@ -16,6 +16,10 @@
 	   :[]
 	   :[nil]
 	   :{}
+	   :inp
+	   :hash-table-keys
+	   :hash-table-values
+	   :hash-table-contents
 	   :~
 	   :join
 	   :make-ctr
@@ -34,8 +38,18 @@
 	   :make-dts-from-ut
 	   :dts-p
 	   :dts-ut
+	   :dts-dow
+	   :dts-year
+	   :dts-month
+	   :dts-day
+	   :dts-hour
+	   :dts-minute
+	   :dts-second
 	   :remove-nil
-	   :remove-unspeced-params))
+	   :remove-unspeced-params
+	   :qmap
+	   :qfilter
+	   :[seq]))
 
 (in-package :utility)
 
@@ -141,7 +155,24 @@
   (setf (gethash key ht) v))
 
 (defsetf [] set-my-hash)
-  
+
+(defun inp (key hash-table)
+  (multiple-value-bind (param1 param2) (gethash key hash-table) (if (or param1 param2) T nil)))
+
+(defun hash-table-keys(hash-table &optional (fmap (lambda(x)x)))
+  (loop for key being the hash-keys of hash-table
+     collecting (funcall fmap key)))
+
+(defun hash-table-values(hash-table &optional (fmap (lambda(x)x)))
+  (loop for value being the hash-values of hash-table
+     using (hash-key key)
+     collecting (funcall fmap value)))
+
+(defun hash-table-contents(hash-table)
+  (loop for value being the hash-values of hash-table
+     using (hash-key key)
+     collecting (list key value)))
+ 
 (defun ~( regex str)
   (multiple-value-bind (begin-match end-match begin-groups end-groups) (ppcre:scan regex str)
     (if (and begin-match end-match)
@@ -176,12 +207,12 @@
     ht))
 
 (defun zip(&rest lists)
-  (labels 
+ (labels 
       ((zip-r(acc lists)
 	 (if (not (chain-and lists))
 	     (reverse acc)
 	     (zip-r (cons (mapcar (lambda(list) (car list)) lists) acc) (mapcar (lambda(list) (cdr list)) lists)))))
-    (zip-r nil lists)))
+    (zip-r nil lists)))  
 
 (defun .sym(&rest syms)
   (multiple-value-bind (ret)(intern (apply 'concatenate 'string (loop for sym in syms collecting (symbol-name sym))))ret))
@@ -216,6 +247,27 @@
 (defun dts-ut( arg )
   (dts-t-ut arg))
 
+(defun dts-dow( dts )
+  (nth-value 6 (decode-universal-time (dts-ut dts))))
+
+(defun dts-year( dts )
+  (nth-value 5 (decode-universal-time (dts-ut dts))))
+
+(defun dts-month( dts )
+  (nth-value 4 (decode-universal-time (dts-ut dts))))
+
+(defun dts-day( dts )
+  (nth-value 3 (decode-universal-time (dts-ut dts))))
+
+(defun dts-hour( dts )
+  (nth-value 2 (decode-universal-time (dts-ut dts))))
+
+(defun dts-minute( dts )
+  (nth-value 1 (decode-universal-time (dts-ut dts))))
+
+(defun dts-second( dts )
+  (nth-value 0 (decode-universal-time (dts-ut dts))))
+
 (defmethod print-object((arg dts-t) s)
   (handler-case
       (multiple-value-bind (second minute hour date month year) (decode-universal-time (dts-t-ut arg)) (format s "~a-~a-~a ~a:~a:~a" year month date hour minute second))
@@ -229,3 +281,17 @@
     (list ,@(loop for param in params collecting 
 		 `(if ,(.sym param '-p) ,param nil)))))
 
+(defmacro qmap( (&rest args) lambda-expr &rest lists)
+  `(mapcar (lambda(,@(loop for arg in args collecting arg)) ,lambda-expr) ,@(loop for list in lists collecting list)))
+
+
+(defmacro qfilter( (&rest args) filter-form map-form &rest lists)
+  `(loop for ,args in (zip ,@(loop for list in lists collecting list))
+    when ,filter-form collecting ,map-form))
+
+(defun [seq](sequence begin &optional (end 0 end-p))
+  (let ((length (length sequence)))
+    (let ((end (if end-p end length)))
+      (let ((end (if (and (> end 0) (<= end length)) end (mod end length)))
+	    (begin (if (and (>= begin 0) (< begin length)) begin (mod begin length))))
+	(subseq sequence begin end)))))

@@ -9,24 +9,31 @@
 	   :query-remote
 	   :query-local
 	   :with-local-db
+	   :with-local-transaction
 	   :with-remote-db
 	   :with-databases
 	   :make-db-field
 	   :make-db-fields
 	   :make-db-fields-no-nil
 	   :make-db-update
+	   :make-db-delete-fn
 	   :make-db-delete
 	   :make-db-insert
+	   :make-db-insert-fn
 	   :mssql-date-error
 	   :read-mssql-date
 	   :mysql-date-error
 	   :read-mysql-date
+	   :vectors
+	   :lists
 	   ))
 
 (in-package :my-db)
 
 (defmacro with-stdout-null( &body frm )
   `(with-open-file (*standard-output* "/dev/null" :direction :output :if-exists :append) ,@frm))
+
+(defparameter *mysql-db-conn* nil)
 
 (defparameter *sql-months* ({} ("jan" 1) ("feb" 2) ("mar" 3) ("apr" 4) ("may" 5) ("jun" 6) ("jul" 7) ("aug" 8) ("sep" 9) ("oct" 10) ("nov" 11) ("dec" 12)))
 
@@ -38,6 +45,7 @@
 	  ((stringp arg) (% "'~a'" (ppcre:regex-replace-all "'" arg "''")))
 	  ((dts-p arg) (multiple-value-bind (second minute hour date month year)
 			   (decode-universal-time (dts-ut arg)) (% "'~a/~a/~a ~a:~a:~a'" year month date hour minute second)))
+	  ((floatp arg) (% "~$" arg))
 	  (t (string arg))))
 
 (defun connect-local( &optional (host *local-host*) (user-id *local-user-id*) (password *local-password*) (database *local-database*) ) 
@@ -49,8 +57,10 @@
   (when conn (progn
 	       (mssql:disconnect conn))))
 
-(defun query-local( sql )
-  (with-stdout-null (mssql:query sql :connection mssql:*database*)))
+(defun query-local( sql &key (out-format 'lists))
+  (let ((rows (with-stdout-null (mssql:query sql :connection mssql:*database*))))
+    (cond ((eq out-format 'vectors) (loop for row in rows collecting (vmap row)))
+	      (t rows))))
 
 (defmacro with-local-db( &body frms )
   (let ((sym-ret (gensym)))
@@ -60,6 +70,10 @@
 			   (disconnect-local mssql:*database*))))
 	   ,sym-ret)))))
 
+(defmacro with-local-transaction( &body frms )
+  `(with-local-db
+	 (mssql:with-transaction (:connection mssql:*database*) ,@frms)))
+      
 (defun connect-remote( &optional (host *remote-host*) (user-id *remote-user-id*) (password *remote-password*) (database *remote-database*) )
   (let ((ret (cl-mysql:connect :host host :user user-id :password password :database database)))
        (cl-mysql:query "set names 'utf8'")
@@ -69,13 +83,13 @@
   (if conn (cl-mysql:disconnect conn) (cl-mysql:disconnect)))
 
 (defun query-remote( sql )
-  (car (car (cl-mysql:query sql))))
+  (car (car (cl-mysql:query sql :database *mysql-db-conn*))))
 
 (defmacro with-remote-db( (&key (host nil) (user-id nil) (password nil) (database nil)) &body frms)
-  (let ((sym-ret (gensym)) (sym-conn (gensym)))
-    (let ((code-block `(let ((,sym-conn (connect-remote )))
+  (let ((sym-ret (gensym)))
+    (let ((code-block `(let ((*mysql-db-conn* (connect-remote )))
 			 (let ((,sym-ret (unwind-protect (progn ,@frms)
-					   (disconnect-remote ,sym-conn))))
+					   (disconnect-remote *mysql-db-conn*))))
 					   ,sym-ret))))
 
       `(let ,(loop for (sym var) in (zip '(host user-id password database)(list host user-id password database)) when var collecting `(,(.sym '*remote- sym '*) ,var)) (,@code-block)))))
@@ -126,10 +140,21 @@
       (db-equality-set ,@(loop for set-var in set-vars collecting set-var))
       (db-equality-p ,@(loop for where-var in where-vars collecting where-var))))
 
+(defun make-db-delete-fn(table field-objects)
+  (% "delete from ~a where ~a"
+     table
+     (join " and " (loop for field-object in field-objects collecting (% "~a ~a ~a" (db-field-t-name field-object) (if (db-field-t-value field-object) "=" "is") (format-sql (db-field-t-value field-object)))))))
+
 (defmacro make-db-delete(table (&rest where-vars))
   `(% "delete FROM ~a where ~a"
       ,(sym-to-db-var table)
       (db-equality-p ,@(loop for where-var in where-vars collecting where-var))))
+
+(defun make-db-insert-fn(table field-objects)
+  (% "insert into ~a (~a) values (~a)"
+     table
+     (join ", " (loop for ofield in field-objects collecting (db-field-t-name ofield)))
+     (join ", " (loop for ofield in field-objects collecting (format-sql (db-field-t-value ofield))))))
 
 (defmacro make-db-insert(table (&rest insert-vars))
   `(% "insert into ~a (~a) values (~a)"

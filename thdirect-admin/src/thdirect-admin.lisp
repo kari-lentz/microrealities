@@ -154,7 +154,7 @@
       (:br)
       (:p "Best regards,")
       (:br)
-      (:p "Tom Krikorian, President")))))
+      (:p "Top Hits USA Team")))))
 
 (defun compose-text-email(user-id user-password) 
   (with-output-to-string (fo)
@@ -191,7 +191,7 @@
 
       (fout)
       
-      (fout "Tom Krikorian, President"))))
+      (fout "Top Hits USA Team"))))
 
 (define-condition email-error 
     (error)

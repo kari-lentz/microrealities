@@ -1,7 +1,7 @@
 (defpackage :my-env
   (:documentation "A for general purpose functions and macros")
   (:use cl)
-  (:export :*remote-host* :*remote-user-id* :*remote-password* :*remote-database*  :*local-host* :*local-user-id* :*local-password* :*local-database*))
+  (:export :*remote-host* :*remote-user-id* :*remote-password* :*remote-database*  :*local-host* :*local-user-id* :*local-password* :*local-database* :*wav-path* :*working-path* :*archive-path*))
 
 (in-package :my-env)
 
@@ -14,3 +14,7 @@
 (defparameter *local-user-id* "sa")
 (defparameter *local-password* "topdog")
 (defparameter *local-database* "Web")
+
+(defparameter *wav-path* "/mnt/ame-file-02/rpm-media-processing/Top Hits Production" )
+(defparameter *working-path* "/home/thdirect/process-files" )
+(defparameter *archive-path* "/home/thdirect/archive-files" )
