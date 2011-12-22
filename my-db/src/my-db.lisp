@@ -8,6 +8,8 @@
 	   :disconnect-remote
 	   :query-remote
 	   :query-local
+	   :pull-conn-spec-local
+	   :pull-conn-spec-remote
 	   :with-local-db
 	   :with-local-transaction
 	   :with-remote-db
@@ -20,10 +22,14 @@
 	   :make-db-delete
 	   :make-db-insert
 	   :make-db-insert-fn
+	   :db-connect-error
+	   :sql-error
 	   :mssql-date-error
 	   :read-mssql-date
 	   :mysql-date-error
 	   :read-mysql-date
+	   :run-script-remote
+	   :run-script-local
 	   :vectors
 	   :lists
 	   ))
@@ -31,7 +37,8 @@
 (in-package :my-db)
 
 (defmacro with-stdout-null( &body frm )
-  `(with-open-file (*standard-output* "/dev/null" :direction :output :if-exists :append) ,@frm))
+  `(with-open-file (*standard-output* "/dev/null" :direction :output :if-exists :append) 
+     (with-open-file (*error-output* "/dev/null" :direction :output :if-exists :append) ,@frm)))
 
 (defparameter *mysql-db-conn* nil)
 
@@ -39,64 +46,128 @@
 
 (defparameter *mssql-date-scanner*  (ppcre:create-scanner "^([a-zA-Z]+)[\\s]+([0-9]{1,2})[\\s]+([0-9]{2,4})[\\s]+([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2}).*([aApP][mM])$"))
 
-(defun format-sql( arg )
-    (cond ((not arg) "null")
-	  ((integerp arg) (% "~a" arg))
-	  ((stringp arg) (% "'~a'" (ppcre:regex-replace-all "'" arg "''")))
-	  ((dts-p arg) (multiple-value-bind (second minute hour date month year)
-			   (decode-universal-time (dts-ut arg)) (% "'~a/~a/~a ~a:~a:~a'" year month date hour minute second)))
-	  ((floatp arg) (% "~$" arg))
-	  (t (string arg))))
+;(defun format-sql( arg )
+;    (cond ((not arg) "null")
+;	  ((integerp arg) (% "~a" arg))
+;	  ((stringp arg) (% "'~a'" (ppcre:regex-replace-all "'" arg "''")))
+;	  ((dts-p arg) (multiple-value-bind (second minute hour date month year)
+;			   (decode-universal-time (dts-ut arg)) (% "'~a/~a/~a ~a:~a:~a'" year month date hour minute second)))
+;	  ((floatp arg) (% "~$" arg))
+;	  ((pathnamep arg) (% "'~a'" (ppcre:regex-replace-all "'" (namestring arg) "''" )))
+;	  (t (string arg))))
+
+(defgeneric format-sql( arg ))  
+
+(defmethod format-sql( arg )
+  (string arg))
+
+(defmethod format-sql( (arg null) )
+  "null")
+
+(defmethod format-sql( (arg integer) )
+  (% "~a" arg))
+
+(defmethod format-sql( (arg string) )
+  (% "'~a'" (ppcre:regex-replace-all "'" arg "''")))
+
+(defmethod format-sql( (arg dts-t) )
+  (multiple-value-bind (second minute hour date month year)
+      (decode-universal-time (dts-ut arg)) (% "'~a/~a/~a ~a:~a:~a'" year month date hour minute second)))
+
+(defmethod format-sql( (arg float) )
+  (% "~$" arg))
+
+(defmethod format-sql( (arg pathname) )
+  (% "'~a'" (ppcre:regex-replace-all "'" (namestring arg) "''" )))
+
+(define-condition sql-error 
+    (error)
+  ((sql :initarg :sql
+	:reader sql)
+   (error-object :initarg :error-object
+	:reader error-object))
+  (:report (lambda (condition stream)
+             (format stream "sql error->:~%sql:~a~%error:~a~%" (sql condition) (error-object condition)))))
+
+(define-condition mssql-error(sql-error)())
+(define-condition mysql-error(sql-error)())
+
+(define-condition db-connect-error (sql-error)
+  ((connection-spec :initform nil :initarg :connection-spec :reader connection-spec)
+   (error-object :initarg :error-object :reader error-object))
+  (:report (lambda( err stream) (format stream "error making database connection using spec:~a~%error:~a~%" (or (connection-spec err) "N/A") (error-object err)))))  
 
 (defun connect-local( &optional (host *local-host*) (user-id *local-user-id*) (password *local-password*) (database *local-database*) ) 
-   (with-stdout-null
-     (let ((ret (mssql:connect database user-id password host :external-format :latin-1)))
-       ret)))
+  (handler-case
+      (with-stdout-null
+	(mssql:connect database user-id password host :external-format :latin-1))
+    (error (err) (error (make-condition 'db-connect-error :connection-spec (format nil "~a:~a:~a:~a" host user-id password database) :error-object err)))))
 
 (defun disconnect-local( &optional (conn nil))
   (when conn (progn
 	       (mssql:disconnect conn))))
 
-(defun query-local( sql &key (out-format 'lists))
-  (let ((rows (with-stdout-null (mssql:query sql :connection mssql:*database*))))
-    (cond ((eq out-format 'vectors) (loop for row in rows collecting (vmap row)))
-	      (t rows))))
+(defun query-local( sql &rest fmt-args)
+  (let ((sql (apply #'% sql (mapcar (lambda(x)(format-sql x)) fmt-args))))
+    (handler-case
+	(with-stdout-null (mssql:query sql :connection mssql:*database*))
+      (error(error-o) (error (make-condition 'mssql-error :sql sql :error-object error-o)))))) 
 
-(defmacro with-local-db( &body frms )
-  (let ((sym-ret (gensym)))
-    `(progn
-       (let ((mssql:*database* (connect-local)))
-	 (let ((,sym-ret (unwind-protect (progn ,@frms)
-			   (disconnect-local mssql:*database*))))
-	   ,sym-ret)))))
+(defun pull-conn-spec-local()
+  (list *local-host* *local-user-id* *local-password* *local-database*))
+
+(defmacro with-local-db( (&key (host nil) (user-id nil) (password nil) (database nil) force-reconnect-p) &body frms)
+  (let ((sym-old-conn-spec (gensym))(sym-frms (gensym)))
+    (let ((code-block `(let ((mssql:*database* (connect-local)))
+			 (unwind-protect (funcall ,sym-frms)
+			   (disconnect-local mssql:*database*)))))
+
+      `(let ((,sym-old-conn-spec (pull-conn-spec-local))(,sym-frms (lambda() (progn ,@frms))))
+	 (let ,(loop for (sym var) in (zip '(host user-id password database)(list host user-id password database)) when var collecting `(,(to-qualified-symbol 'my-db (.sym '*local- sym '*)) ,var)) 
+	   (if (and (not ,force-reconnect-p) mssql:*database* (equalp ,sym-old-conn-spec (pull-conn-spec-local)))
+	       (funcall ,sym-frms)
+	       (,@code-block)))))))
 
 (defmacro with-local-transaction( &body frms )
-  `(with-local-db
+  `(with-local-db ()
 	 (mssql:with-transaction (:connection mssql:*database*) ,@frms)))
       
 (defun connect-remote( &optional (host *remote-host*) (user-id *remote-user-id*) (password *remote-password*) (database *remote-database*) )
   (let ((ret (cl-mysql:connect :host host :user user-id :password password :database database)))
-       (cl-mysql:query "set names 'utf8'")
-       ret))
+    (cl-mysql:query "set names 'utf8'" :database ret)
+    ret))
 
 (defun disconnect-remote( &optional (conn nil))
-  (if conn (cl-mysql:disconnect conn) (cl-mysql:disconnect)))
+  (if conn 
+      (cl-mysql:disconnect conn)
+      (cl-mysql:disconnect)))
 
-(defun query-remote( sql )
-  (car (car (cl-mysql:query sql :database *mysql-db-conn*))))
+(defun query-remote( sql &rest fmt-args)
+  (let ((sql (apply #'% sql (mapcar (lambda(x) (format-sql x)) fmt-args))))
+    (handler-case
+	(car (car (cl-mysql:query sql :database *mysql-db-conn*)))
+      (error(error-o) (error (make-condition 'mysql-error :sql sql :error-object error-o))))))
 
-(defmacro with-remote-db( (&key (host nil) (user-id nil) (password nil) (database nil)) &body frms)
-  (let ((sym-ret (gensym)))
-    (let ((code-block `(let ((*mysql-db-conn* (connect-remote )))
-			 (let ((,sym-ret (unwind-protect (progn ,@frms)
-					   (disconnect-remote *mysql-db-conn*))))
-					   ,sym-ret))))
+(defun pull-conn-spec-remote()
+  (list *remote-host* *remote-user-id* *remote-password* *remote-database*))
 
-      `(let ,(loop for (sym var) in (zip '(host user-id password database)(list host user-id password database)) when var collecting `(,(.sym '*remote- sym '*) ,var)) (,@code-block)))))
+(defmacro with-remote-db( (&key (host nil) (user-id nil) (password nil) (database nil) force-reconnect-p) &body frms)
+  (let ((sym-old-conn-spec (gensym))(sym-frms (gensym)))
+    (let ((code-block `(let ((*mysql-db-conn* (connect-remote)))
+			 (unwind-protect (funcall ,sym-frms)
+					   (disconnect-remote *mysql-db-conn*)))))
+
+      `(let ((,sym-old-conn-spec (pull-conn-spec-remote))(,sym-frms (lambda() (progn ,@frms))))
+	 (let ,(loop for (sym var) in (zip '(host user-id password database)(list host user-id password database)) when var collecting `(,(to-qualified-symbol 'my-db (.sym '*remote- sym '*)) ,var)) 
+	   (if (and (not ,force-reconnect-p) *mysql-db-conn* (equalp ,sym-old-conn-spec (pull-conn-spec-remote)))
+	       (funcall ,sym-frms)
+	       (,@code-block)))))))
+
+
 
 (defmacro with-databases(&body frms)
   `(with-remote-db ()
-     (with-local-db ,@frms)))
+     (with-local-db () ,@frms)))
 
 (defmacro db-equality-set(&rest db-vars) 
   `(join ", "
@@ -208,4 +279,15 @@
 	  nil
 	  (error (make-condition 'mysql-date-error :int date :error-object error-o))))))
 
+(defun run-script-remote(&rest lines)
+  (with-remote-db ()
+    (loop for line in lines
+       do
+	 (query-remote line))))
+
+(defun run-script-local(&rest lines)
+  (with-local-db ()
+    (loop for line in lines
+       do
+	 (query-local line))))
 

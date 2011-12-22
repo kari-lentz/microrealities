@@ -4,7 +4,7 @@
   :author "Kari Lentz <kari_lentz@amemusic.com>"
   :maintainer "Kari Lentz <kari_lentz@amemusic.com>"
   :licence "?"
-  :depends-on (#:thdirect-admin #:hunchentoot)
+  :depends-on (#:swank #:th-chart-data #:thdirect-admin #:hunchentoot)
   :components
   ((:module src
 	    :components
