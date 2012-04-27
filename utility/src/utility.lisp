@@ -52,6 +52,7 @@
 	   :dts-minute
 	   :dts-second
 	   :dts-to-Y/M/D
+	   :dts-to-rfc-1123
 	   :parse-dts-american
 	   :parse-dts-rfc-1123
 	   :parse-dts-barcode
@@ -276,6 +277,7 @@
 (defparameter *days-of-week* ({} (0 "Mon")(1 "Tue")(2 "Wed")(3 "Thu")(4 "Fri")(5 "Sat")(6 "Sun")))
 (defparameter *long-days-of-week* ({} (0 "Monday")(1 "Tuesday")(2 "Wednesday")(3 "Thursday")(4 "Friday")(5 "Saturday")(6 "Sunday")))
 (defparameter *months* ({} ("Jan" 1)("Feb" 2)("Mar" 3)("Apr" 4)("May" 5)("Jun" 6)("Jul" 7) ("Aug" 8) ("Sep" 9) ("Oct" 10)("Nov" 11)("Dec" 12)))
+(defparameter *short-months* ({} (1 "Jan")(2 "Feb")(2 "Mar")(4 "Apr")(5 "May")(6 "Jun")(7 "Jul") (8 "Aug") (9 "Sep") (10 "Oct")(11 "Nov")(12 "Dec")))
 (defparameter *long-months* ({} (1 "January")(2 "February")(3 "March")(4 "April")(5 "May")(6 "June")(7 "July") (8 "August") (9 "September") (10 "October")(11 "November")(12 "December")))
 
 (defun make-dts(year month day hour minute second &optional time-zone)
@@ -336,7 +338,21 @@
     (when mo
       (make-dts-from-ut (encode-universal-time (parse-integer (funcall mo 7)) (parse-integer (funcall mo 6)) (parse-integer (funcall mo 5)) (parse-integer (funcall mo 2)) ([] *months* (funcall mo 3)) (parse-integer (funcall mo 4))0)))))   
 
-(defun dts-to-Y/M/D(dts)
+(defun dts-to-rfc-1123 (&optional (dts (make-dts-now)))
+  "Generates a time string according to RFC 1123.  Default is current time."
+  (multiple-value-bind
+        (second minute hour date month year day-of-week)
+      (dts-parts dts 0)
+    (format nil "~A, ~2,'0d ~A ~4d ~2,'0d:~2,'0d:~2,'0d GMT"
+            ([] *days-of-week* day-of-week)
+            date
+            ([] *short-months* month)
+            year
+            hour
+            minute
+            second)))
+
+(defun dts-to-Y/M/D (&optional (dts (make-dts-now)))
   (format nil "~4,'0d/~2,'0d/~2,'0d" (dts-year dts) (dts-month dts) (dts-day dts)))
 
 (defun dts+(dts num-days)

@@ -11,7 +11,7 @@ output of binary data.")
 
 (defparameter *hunchentoot-port* 8080)
 
-(defparameter *log-folder* "/home/klentz/log/")
+(defparameter *log-folder* (merge-pathnames "log/" my-env:*thdirect-admin-files*))
 (ensure-directories-exist *log-folder*)
 
 (defparameter *access-log-pathname* (merge-pathnames "access.log" *log-folder* ))
@@ -72,8 +72,8 @@ output of binary data.")
 
 (setf *dispatch-table*
       (list #'dispatch-easy-handlers
-	    (create-folder-dispatcher-and-handler "/account/" "/home/klentz/admin/")
-	    (create-folder-dispatcher-and-handler "/reporting/" "/home/klentz/admin/")))
+	    (create-folder-dispatcher-and-handler "/account/" my-env:*home-thdirect-content*)
+	    (create-folder-dispatcher-and-handler "/reporting/" my-env:*home-thdirect-content*)))
 
 (define-easy-handler (account-manage :uri "/account/manage"
                                 :default-request-type :post)
