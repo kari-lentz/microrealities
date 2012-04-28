@@ -80,3 +80,18 @@
     ((name :documentation "name of the employee")
      (age)
      (occupation :documentation "occupation for the company")))
+
+(defmacro define-function-object(function-object-name call-method-name (function-name &rest args))
+  `(progn
+     (define-basic-class ,function-object-name
+	 ,(loop for arg in args collecting `(,arg)))
+     (defmethod ,call-method-name((,function-object-name ,function-object-name))
+       (,function-name ,@(loop for arg in args collecting `(,arg  ,function-object-name))))))
+	 
+(defun adder(x y z)
+  (+ x y z))
+
+(defun inspect-function-object()
+  (macroexpand-1 '(define-function-object adder-object render (adder x y z))))
+
+(define-function-object adder-object render (adder x y z))
