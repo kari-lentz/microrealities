@@ -47,27 +47,32 @@
 
   (defstruct basic-class-member symbol documentation)
 
-  (defun make-declaration(class-name members)
-    `(defclass ,class-name nil 
+  (defun make-declaration(class-name members &rest base-classes)
+    `(defclass ,class-name ,base-classes
        ,(loop for member in members 
 	   collecting (create-member (basic-class-member-symbol member) :documentation (basic-class-member-documentation member)))))
 
-  (defun make-positional-constructor(class-name members)
-    `(defun ,class-name 
-	 ,(loop for member in members collecting (basic-class-member-symbol member))
-       (make-instance (quote ,class-name) 
-		      ,@(apply #'concatenate 'list (loop for member in members collecting `(,(to-keyword (basic-class-member-symbol member)) ,(basic-class-member-symbol member))))))) 
-
-  (defun make-print-method(class-name members)
-    `(defmethod print-object((,class-name ,class-name) stream)
-       (format stream 
-	       (format nil 
-		       ,(format nil "\"(~a ~a)\"" class-name 
-				(join " " 
-				      (loop for member in members collecting 
-					   (format nil "~a:~a" (basic-class-member-symbol member) "~a"))))
-		       ,@(loop for member in members collecting
-			      `(,(basic-class-member-symbol member) ,class-name)))))))
+  (defun make-positional-constructor(class-name members &optional last-rest-p)
+    (flet ((pass-rest(params)
+	     (if last-rest-p
+		 (concatenate 'list (butlast params) (cons '&rest (last params)))
+		 params)))
+      
+      `(defun ,class-name 
+	   ,(pass-rest (loop for member in members collecting (basic-class-member-symbol member)))
+	 (make-instance (quote ,class-name) 
+			,@(apply #'concatenate 'list (loop for member in members collecting `(,(to-keyword (basic-class-member-symbol member)) ,(basic-class-member-symbol member)))))))) 
+    
+    (defun make-print-method(class-name members)
+      `(defmethod print-object((,class-name ,class-name) stream)
+	 (format stream 
+		 (format nil 
+			 ,(format nil "(~a ~a)" class-name 
+				  (join " " 
+					(loop for member in members collecting 
+					     (format nil "~a:~a" (basic-class-member-symbol member) "~a"))))
+			 ,@(loop for member in members collecting
+				`(,(basic-class-member-symbol member) ,class-name)))))))
 
 (defmacro define-basic-class(class-name (&rest member-specs))
   (let ((members (loop for member-spec in member-specs collecting (apply #'make-basic-class-member :symbol member-spec))))
@@ -95,3 +100,31 @@
   (macroexpand-1 '(define-function-object adder-object render (adder x y z))))
 
 (define-function-object adder-object render (adder x y z))
+
+(define-basic-class tree 
+    ((branches)))
+
+(defmethod render((tree tree))
+  (loop for branch in (branches tree)
+       collecting
+       (render branch)))
+
+(defmacro define-tree-class(class-name (&rest member-specs))
+  (let ((members (loop for member-spec in member-specs collecting (apply #'make-basic-class-member :symbol member-spec))))
+    (let ((members+inheritted (concatenate 'list members (list (make-basic-class-member :symbol 'branches)))))
+      `(progn
+	 ,(make-declaration class-name members 'tree)
+	 ,(make-positional-constructor class-name members+inheritted t)
+	 ,(make-print-method class-name members+inheritted)))))
+
+(defun inspect-tree-object()
+  (macroexpand-1 '(define-tree-class multiplier 
+		   ((value-1)
+		    (value-2)))))
+
+(define-tree-class multiplier 
+    ((value-1)
+     (value-2)))
+
+(defmethod render((multiplier multiplier))
+  (* (value-1 multiplier) (value-2 multiplier) (apply #'+ (call-next-method))))
