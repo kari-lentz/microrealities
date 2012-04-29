@@ -37,7 +37,7 @@
   (let ((v (funcall f (* 10 x) (* 10 y) (* 10 z))))
     (mapcar (lambda(x) (/ x 10)) v)))
 
-(eval-when (:compile-toplevel) 
+(eval-when (:compile-toplevel :load-toplevel :execute) 
    
   (defun create-member(symbol &key documentation)
     (concatenate 
