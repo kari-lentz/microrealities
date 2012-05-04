@@ -332,7 +332,12 @@
     `(progn
        (defclass ,type-symbol nil ((,internal-unit :initarg ,(to-keyword internal-unit) :reader ,internal-unit)))
        (defmethod print-object( (,sym-o ,type-symbol) ,sym-s)
-	 (format ,sym-s "~a:~a ~a" ,(symbol-name type-symbol)(,internal-unit ,sym-o),(symbol-name internal-unit)))
+	 (format ,sym-s "(~a:~a ~a)" ,(symbol-name type-symbol)(,internal-unit ,sym-o),(symbol-name internal-unit)))
+       (defgeneric ,internal-unit(object))
+       (defmethod ,internal-unit (,var)
+	 (make-instance (quote ,type-symbol) ,(to-keyword internal-unit) ,var))
+       ;(defmethod ,internal-unit ((object ,type-symbol))
+	; (,internal-unit object))
        ,@(loop for (unit-name entry-function exit-function) in unit-specs collecting
 	      `(progn
 		(defgeneric ,unit-name (object))
