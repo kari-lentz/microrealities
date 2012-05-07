@@ -70,7 +70,10 @@
 	   :deflistwalker
 	   :merge-files
 	   :parse-integer-with-default
-	   :dump-string-to-file))
+	   :dump-string-to-file
+	   :replace-symbol
+	   :map-symbol
+	   :with-rebind))
 
 (in-package :utility)
 
@@ -447,3 +450,26 @@
 (defun dump-string-to-file( fp string )
   (with-open-file (stream-out fp :direction :output :if-does-not-exist :create :if-exists :supersede)
     (write-sequence string stream-out)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun replace-symbol(symbol tree replacement-tree)
+    (labels ((replace-symbol-inner(acc tree)
+	       (if (not tree)
+		   acc
+		   (let ((node (car tree)))
+		     (replace-symbol-inner 
+		      (cons
+		       (if (listp node)
+			   (replace-symbol symbol node replacement-tree)
+			   (if (eq symbol node)
+			       replacement-tree
+			       node))
+		       acc)
+		      (cdr tree))))))
+      (reverse (replace-symbol-inner nil tree))))
+
+  (defun map-symbol(var tree symbols)
+    (mapcar (lambda(symbol)(replace-symbol var tree symbol)) symbols)))
+
+ (defmacro with-rebind((var expression-using-var &rest new-vars) &body frms)
+   `(let ,(map-symbol var `(,var ,expression-using-var) new-vars) ,@frms))
