@@ -71,9 +71,13 @@
 	   :merge-files
 	   :parse-integer-with-default
 	   :dump-string-to-file
+	   :with-gensyms
+	   :for-each-range
+	   :map-range
 	   :replace-symbol
 	   :map-symbol
-	   :with-rebind))
+	   :with-rebind
+	   :repeat-apply))
 
 (in-package :utility)
 
@@ -451,25 +455,28 @@
   (with-open-file (stream-out fp :direction :output :if-does-not-exist :create :if-exists :supersede)
     (write-sequence string stream-out)))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun replace-symbol(symbol tree replacement-tree)
-    (labels ((replace-symbol-inner(acc tree)
-	       (if (not tree)
-		   acc
-		   (let ((node (car tree)))
-		     (replace-symbol-inner 
-		      (cons
-		       (if (listp node)
-			   (replace-symbol symbol node replacement-tree)
-			   (if (eq symbol node)
-			       replacement-tree
-			       node))
-		       acc)
-		      (cdr tree))))))
-      (reverse (replace-symbol-inner nil tree))))
+(defmacro with-gensyms( ( &rest symbol-names ) &body forms)
+  `(let (,@(loop for symbol-name in symbol-names collecting
+	       `(,symbol-name (gensym))))
+     ,@forms))
 
-  (defun map-symbol(var tree symbols)
-    (mapcar (lambda(symbol)(replace-symbol var tree symbol)) symbols)))
+(defmacro for-each-range((control-var upper-bound &optional (lower-bound 0) (step 1)) &body frms)
+  (with-gensyms (!upper-bound !step) 
+    `(let ((,control-var ,lower-bound)(,!upper-bound ,upper-bound)(,!step ,step))
+       (tagbody 
+	resume-loop
+	  ,@frms
+	  (incf ,control-var ,!step)
+	  (unless (>= ,control-var ,!upper-bound) (go resume-loop))))))
 
- (defmacro with-rebind((var expression-using-var &rest new-vars) &body frms)
-   `(let ,(map-symbol var `(,var ,expression-using-var) new-vars) ,@frms))
+(defmacro map-range((control-var upper-bound &optional (lower-bound 0) (step 1)) frm)
+  (with-gensyms (!upper-bound !step !acc) 
+    `(let ((,control-var ,lower-bound)(,!upper-bound ,upper-bound)(,!step ,step)(,!acc ,nil))
+       (tagbody 
+	resume-loop
+	  (setf ,!acc (cons ,frm ,!acc))
+	  (incf ,control-var ,!step)
+	  (unless (>= ,control-var ,!upper-bound) (go resume-loop)))
+       (reverse ,!acc))))
+
+	 
