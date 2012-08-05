@@ -72,6 +72,7 @@
 	   :parse-integer-with-default
 	   :dump-string-to-file
 	   :with-gensyms
+	   :with-once-only
 	   :for-each-range
 	   :map-range
 	   :replace-symbol
@@ -460,6 +461,13 @@
 	       `(,symbol-name (gensym))))
      ,@forms))
 
+(defmacro with-once-only((&rest args) &body body)
+  (let ((sym-args-o (loop for arg in args collecting (gensym "sym-args-o"))))
+    `(let ,(mapcar #'list sym-args-o args) ;stash original params
+       (let ,(mapcar (lambda(arg) `(,arg (gensym))) args) ;premeptively write code shadowing original args with gensyms
+	 `(let (,,@(mapcar (lambda(arg sym-arg-o) ``(,,arg ,,sym-arg-o)) args sym-args-o)) ;rewrite quotation with a let to old arguments
+	    ,,@body)))))
+
 (defmacro for-each-range((control-var upper-bound &optional (lower-bound 0) (step 1)) &body frms)
   (with-gensyms (!upper-bound !step) 
     `(let ((,control-var ,lower-bound)(,!upper-bound ,upper-bound)(,!step ,step))
@@ -478,5 +486,6 @@
 	  (incf ,control-var ,!step)
 	  (unless (>= ,control-var ,!upper-bound) (go resume-loop)))
        (reverse ,!acc))))
+
 
 	 
