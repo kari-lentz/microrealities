@@ -79,6 +79,7 @@
 	   :map-symbol
 	   :with-rebind
 	   :repeat-apply
+	   :@
 	   :splice))
 
 (in-package :utility)
