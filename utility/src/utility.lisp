@@ -80,7 +80,8 @@
 	   :with-rebind
 	   :repeat-apply
 	   :@
-	   :splice))
+	   :splice
+	   :filled-list))
 
 (in-package :utility)
 
@@ -489,36 +490,7 @@
 	  (unless (>= ,control-var ,!upper-bound) (go resume-loop)))
        (reverse ,!acc))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-
-  (defun splice-fn(splice-symbol &rest elements)
-    (let ((ret))
-      (labels ((process(elements)
-		 (let ((car-elements (car elements)))
-		   (if (eq car-elements splice-symbol)
-		       (progn
-			 (loop for element in (car (cdr elements))
-			    do
-			      (push element ret))
-			 (cdr (cdr elements)))
-		       (progn
-			 (push car-elements ret)
-			 (cdr elements))))))
-      
-	(labels ((rec(elements)
-		   (if elements
-		       (rec (process elements)))))
-	  (rec elements)
-	  (reverse ret))))))
-
-(defmacro splice(&rest elements)
-  (let ((splice-symbol (gensym "SPLICE-SYMBOL")))
-    `(splice-fn (quote ,splice-symbol)
-		,@(loop for element in elements
-		     collecting
-		       (if (eq element '@)
-			   `(quote ,splice-symbol)
-			   element)))))
-
+(defun filled-list(num-elements &optional fill-value)
+  (loop for x from 1 to num-elements collecting fill-value))
 
 	 
