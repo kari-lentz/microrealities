@@ -138,19 +138,23 @@
 	 (vertex 0 35 35)
 	 (vertex -35 35 35))))
 
-;; (defun display-scene-triangle-fan()
+(defun display-scene-quad-strip()
   
-;;      (with-scene ((degrees 60) 1 100 640 480)
+     (with-scene ((degrees 60) 1 100 640 480)
 
-;;        (assign-light 0 1 0 0 0)
-;;        (translate 0 0 -75)
-;;        (color-material :front :ambient-and-diffuse)
-;;        (color 0 1 0)
+       (assign-light 0 1 0 0 0)
+       (translate 0 0 -75)
+       (color-material :front :ambient-and-diffuse)
+       (color 0 1 0)
 
-;;        (with-quad-strip 
-;; 	 (let ((radius 50)(slices 16))
-;; 	   (let ((delta-ang (/ +TWO-PI+ slices)))
-;; 	     (map-range (n slices)
-;; 			(from-spherical (x y z) radius (degrees 30) (* n delta-ang)
-;; 			  (vertex x y z)
-;; 			  (vertex x y z)
+       (let ((radius 50)(slices 16))
+	 (flet ((make-point(alt az)
+		  (from-spherical (x y z) radius alt az
+		    (normal x y z)
+		    (vertex x y z))))
+	   (let ((delta-ang (/ +TWO-PI+ slices)))
+	     (with-quad-strip 
+	       (for-each-range (n (1+ slices))
+		 (make-point (degrees 15) (* n delta-ang))
+		 (make-point (degrees 30) (* n delta-ang)))))))))			  
+				      
