@@ -19,7 +19,7 @@
      (* rad sin-alt (sin az))
      (* rad (cos alt)))))
 
-(defmacro from-spherical((x-var y-var z-var) radius alt-ang az-ang &body body) 
+(defmacro from-spherical((x-var y-var z-var radius alt-ang az-ang) &body body) 
  ` (multiple-value-bind (,x-var ,y-var ,z-var) 
        (spherical-to-cartesian ,radius ,alt-ang ,az-ang)  
      ,@body))
@@ -28,7 +28,7 @@
   (let ((anti-mag (/ 1 (sqrt (+ (* x x) (* y y) (* z z))))))
     (values (* x anti-mag) (* y anti-mag) (* z anti-mag))))
 
-(defmacro with-normalized((x-var y-var z-var) x y z &body body)
+(defmacro with-normalized((x-var y-var z-var x y z) &body body)
   ` (multiple-value-bind (,x-var ,y-var ,z-var) 
 	(normalize ,x ,y ,z)  
       ,@body))
@@ -106,7 +106,7 @@
     (append
      (list 
       (list 0 0 (/ radius 1))) 
-     (map-range (ang (1+ slices)) (from-spherical (x y z)  radius (degrees 30) (* ang ang-inc) 
+     (map-range (ang (1+ slices)) (from-spherical (x y z radius (degrees 30) (* ang ang-inc)) 
 			       (list x y z))))))
 
 (defun display-scene-triangle-fan()
@@ -120,7 +120,7 @@
 
        (with-triangle-fan 
 	 (loop for (x y z) in (umbrella-points 50 16) do
-	      (with-normalized (x y z) x y z
+	      (with-normalized (x y z x y z)
 		  (normal x y z))
 	      (vertex x y z)))))
 
@@ -149,7 +149,7 @@
 
        (let ((radius 50)(slices 16))
 	 (flet ((make-point(alt az)
-		  (from-spherical (x y z) radius alt az
+		  (from-spherical (x y z radius alt az)
 		    (normal x y z)
 		    (vertex x y z))))
 	   (let ((delta-ang (/ +TWO-PI+ slices)))
