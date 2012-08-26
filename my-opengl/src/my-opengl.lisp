@@ -163,14 +163,14 @@
 		 (make-point (degrees 30) (* n delta-ang)))))))))			  
 		
 (with-full-eval		      
-  (defstruct 3d-vector x y z)
+  (defstruct sphere-surface x y z az alt)
 
-  (defmethod make-load-form ((self 3d-vector) &optional environment)
+  (defmethod make-load-form ((self sphere-surface) &optional environment)
     (declare (ignore environment))
     ;; Note that this definition only works because X and Y do not
     ;; contain information which refers back to the object itself.
     ;; For a more general solution to this problem, see revised example below.
-    `(make-3d-vector :x ',(3d-vector-x self) :y ',(3d-vector-y self) :z ',(3d-vector-z self))))
+    `(make-sphere-surface :x ,(sphere-surface-x self) :y ,(sphere-surface-y self) :z ,(sphere-surface-z self) :az ,(sphere-surface-az self) :alt ,(sphere-surface-alt self))))
 
 (defmacro make-globe-points(radius slices)
 
@@ -181,49 +181,52 @@
   (let ((slices (eval slices)))
     (unless (numberp slices) (error "in make-globe-points slices needs to evaluate to a literal decimal number - compile time macro"))  
     (let ((width (1+ slices))(height (1- (/ slices 2))))
-      (let ((grid (make-array (* width height ) :element-type '3d-vector :initial-element (make-3d-vector :x 0 :y 0 :z 0)))
+      (let ((grid (make-array (* width height ) :element-type 'sphere-surface :initial-element (make-sphere-surface :x 0 :y 0 :z 0)))
 	    (delta (/ +TWO-PI+ slices)))
 	(for-each-range 
 	    (j height)
 	  (for-each-range 
 	      (i width)
 	    (from-spherical (x y z 1.0d0 (* (1+ j) delta) (* i delta))
-	      (setf (aref grid (+ i (* width j))) (make-3d-vector :x x :y y :z z)))))
+	      (setf (aref grid (+ i (* width j))) (make-sphere-surface :x x :y y :z z :alt (* (1+ j) delta) :az (* i delta))))))
 	(with-gensyms (x y v)
 	  `(lambda(,x ,y)
 	     (unless (and (>= ,x 0)(< ,x ,width)) (error (format nil "make-globe-points: range error x needs to be from 0 to ~a" ,(1- width))))
 	     (unless (and (>= ,y 0)(< ,y ,height)) (error (format nil "make-globe-points: range error y needs to be from 0 to ~a" ,(1- height))))
-	     (with-slots (x y z) (aref ,grid (+ ,x (* ,y ,width)))
-	       (values-list (qmap (,v) (* ,v ,radius)(list x y z))))))))))
+	     (with-slots (x y z alt az) (aref ,grid (+ ,x (* ,y ,width)))
+	       (values-list (append (qmap (,v) (* ,v ,radius)(list x y z))(list alt az))))))))))
 
 (defconstant +slices+ 16)
 
 (defun draw-globe(radius)
+
   (let ((fpoints (make-globe-points radius +slices+))(x-slices (1+ +slices+))(y-slices (1- (/ +slices+ 2))))
 					;top triangle fan
-    (with-triangle-fan
-      (vertex 0 0 radius)
-      (for-each-range (n x-slices)
-	(multiple-value-bind (x y z)(funcall fpoints n 0)
-	  (normal x y z)
-	  (vertex x y z))))
 
-    (with-quad-strip
-      (for-each-range (n (1- y-slices))
-	(for-each-range (m x-slices)
-	  (progn
-	    (multiple-value-bind (x y z)(funcall fpoints m n)
-	      (normal x y z)
-	      (vertex x y z))
-	    (multiple-value-bind (x y z)(funcall fpoints m (1+ n))
-	      (normal x y z)
-	      (vertex x y z))))))
-
-    (with-triangle-fan
-      (vertex 0 0 (- radius))
-      (for-each-range (n x-slices)
-	(multiple-value-bind (x y z)(funcall fpoints (- x-slices n 1) (1- y-slices))
-	  (vertex x y z))))))
+    (flet ((draw-point(x y z alt az)
+	     (declare (ignore alt az))
+	     (normal x y z)
+	     (vertex x y z)))
+      	
+      (flet ((draw-point-from-array(x-idx y-idx)
+	       (multiple-value-bind (x y z alt az)(funcall fpoints x-idx y-idx)
+		 (draw-point x y z alt az))))
+	
+	(with-triangle-fan
+	  (draw-point 0 0 radius 0 0)
+	  (for-each-range (n x-slices)
+	    (draw-point-from-array n 0)))
+	
+	(with-quad-strip
+	  (for-each-range (n (1- y-slices))
+	    (for-each-range (m x-slices)
+	      (draw-point-from-array m n)
+	      (draw-point-from-array m (1+ n)))))
+	
+	(with-triangle-fan
+	  (draw-point 0 0 (- radius) PI 0)
+	  (for-each-range (n x-slices)
+	    (draw-point-from-array (- x-slices n 1) (1- y-slices))))))))
 
 (defun display-globe()
 
