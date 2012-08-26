@@ -79,7 +79,8 @@
 	   :map-symbol
 	   :with-rebind
 	   :repeat-apply
-	   :filled-list))
+	   :filled-list
+	   :with-full-eval))
 
 (in-package :utility)
 
@@ -491,4 +492,6 @@
 (defun filled-list(num-elements &optional fill-value)
   (loop for x from 1 to num-elements collecting fill-value))
 
-	 
+(defmacro with-full-eval(&body body)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     ,@body))
