@@ -55,8 +55,49 @@
 (defmacro assign-light(index x y z w)
     `(light ,(to-keyword (.sym 'light index)) :position (vector ,x ,y ,z ,w)))
 
+(defun assign-texture(texture-id pf)
+  (let ((texture-data (map 'vector (lambda(x)x) (jpeg:decode-image pf))))
+    (gl:bind-texture :texture-2d texture-id)
+    (gl:tex-parameter :texture-2d :texture-min-filter :linear)
+    ;; these are actually the defaults, just here for reference
+    (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
+    (gl:tex-parameter :texture-2d :texture-wrap-s :clamp-to-edge)
+    (gl:tex-parameter :texture-2d :texture-wrap-t :clamp-to-edge)
+    (gl:tex-parameter :texture-2d :texture-border-color '(0 0 0 0))
+    (gl:tex-image-2d :texture-2d 0 3 1024 512 0 :bgr :unsigned-byte texture-data)))
+
+(defmacro with-textures( (&rest pfs) textures-name &body body )
+  `(let ((,textures-name (gl:gen-textures (length (list ,@pfs)))))
+     (loop for (pf texture-id) in (mapcar #'list (list ,@pfs) ,textures-name) do (assign-texture pf texture-id))       
+     ,@body
+     (gl:delete-textures ,textures-name))) 
+
+(defparameter *texture-id* nil)
+(defparameter *texture-maps* "/home/klentz/runtime/my-opengl/")
+
+(defmacro using-texture(texture-id &body body)
+  `(let ((*texture-id* ,texture-id))
+     (format t "using texture-id ~a~%" *texture-id*)
+     (gl:bind-texture :texture-2d *texture-id*)
+     ,@body))
+
+; with-textures
+;
+; texture-specs are of the form (texture-symbol "path/to/file.bmp")
+;
+(defmacro with-textures((&rest texture-specs) &body body)
+  (let ((texture-symbols (loop for (texture-symbol pf) in texture-specs collecting texture-symbol))) 
+    `(destructuring-bind 
+	   ,texture-symbols
+	 (gl:gen-textures ,(length texture-specs))
+       ,@(loop for (texture-symbol pf) in texture-specs 
+	    collecting 
+	      `(assign-texture ,texture-symbol (if *texture-maps* (merge-pathnames ,pf *texture-maps*) ,pf)))
+       ,@body
+       (gl:delete-textures (list ,@texture-symbols)))))
+
 (defmacro with-scene((field-of-view min-z max-z &optional (viewport-width 640) (viewport-height 480)) &body frms)
-  (with-gensyms (width height)  
+  (with-gensyms (width height screen-ratio)  
     (with-once-only (field-of-view min-z max-z viewport-width viewport-height)
       `(sdl:with-init ()
 	 (sdl:window ,viewport-width ,viewport-height :flags sdl:sdl-opengl)
@@ -70,8 +111,9 @@
 	 (gl:load-identity)
       
 	 (let ((,width (* (tan ,field-of-view) ,min-z))) 
-	   (let ((,height (* +aspect+ ,width)))
-	     (gl:frustum (- 0.0d0 ,width) ,width (- 0.0d0 ,height) ,height ,min-z ,max-z)))
+	   (let ((,screen-ratio (/ ,viewport-height ,viewport-width))) 
+	     (let ((,height (* ,screen-ratio ,width)))
+	       (gl:frustum (- 0 ,width) ,width (- 0 ,height) ,height ,min-z ,max-z))))
        
 	 (sdl:with-events ()
 	   (:quit-event () t)
@@ -84,7 +126,7 @@
 					;(restartable (draw))))))
 		
 					;(gl:enable :texture-2d)
-		  (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material)
+		  (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
 	     
 		  (gl:clear :color-buffer-bit :depth-buffer-bit)
 		  (gl:cull-face :back)
@@ -196,37 +238,39 @@
 	     (with-slots (x y z alt az) (aref ,grid (+ ,x (* ,y ,width)))
 	       (values-list (append (qmap (,v) (* ,v ,radius)(list x y z))(list alt az))))))))))
 
-(defconstant +slices+ 16)
+(defconstant +slices+ 32)
 
-(defun draw-globe(radius)
+(defun draw-globe(radius &optional texture-id)
 
   (let ((fpoints (make-globe-points radius +slices+))(x-slices (1+ +slices+))(y-slices (1- (/ +slices+ 2))))
 					;top triangle fan
 
     (flet ((draw-point(x y z alt az)
-	     (declare (ignore alt az))
-	     (normal x y z)
-	     (vertex x y z)))
+	       (tex-coord (/ az +TWO-PI+) (/ alt PI))
+	       (normal x y z)
+	       (vertex x y z)))
       	
       (flet ((draw-point-from-array(x-idx y-idx)
 	       (multiple-value-bind (x y z alt az)(funcall fpoints x-idx y-idx)
 		 (draw-point x y z alt az))))
 	
-	(with-triangle-fan
-	  (draw-point 0 0 radius 0 0)
-	  (for-each-range (n x-slices)
-	    (draw-point-from-array n 0)))
+	(using-texture texture-id
+
+	  (with-triangle-fan
+	    (draw-point 0 0 radius 0 0)
+	    (for-each-range (n x-slices)
+	      (draw-point-from-array n 0)))
 	
-	(with-quad-strip
-	  (for-each-range (n (1- y-slices))
-	    (for-each-range (m x-slices)
-	      (draw-point-from-array m n)
-	      (draw-point-from-array m (1+ n)))))
+	  (with-quad-strip
+	    (for-each-range (n (1- y-slices))
+	      (for-each-range (m x-slices)
+		(draw-point-from-array m n)
+		(draw-point-from-array m (1+ n)))))
 	
-	(with-triangle-fan
-	  (draw-point 0 0 (- radius) PI 0)
-	  (for-each-range (n x-slices)
-	    (draw-point-from-array (- x-slices n 1) (1- y-slices))))))))
+	  (with-triangle-fan
+	    (draw-point 0 0 (- radius) PI 0)
+	    (for-each-range (n x-slices)
+	      (draw-point-from-array (- x-slices n 1) (1- y-slices)))))))))
 
 (defun display-globe()
 
@@ -235,7 +279,9 @@
     (assign-light 0 1 0 0 0)
     (translate 0 0 -75)
     (color-material :front :ambient-and-diffuse)
-    (color 0 1 0)
-    (draw-globe 50.0)))
+    ;(color 0 1 0)
+
+    (with-textures ((earth "earth.jpg"))
+      (draw-globe 50.0 earth))))
 
 
