@@ -460,7 +460,7 @@
 
 (defmacro with-gensyms( ( &rest symbol-names ) &body forms)
   `(let (,@(loop for symbol-name in symbol-names collecting
-	       `(,symbol-name (gensym))))
+	       `(,symbol-name (gensym ,(symbol-name symbol-name)))))
      ,@forms))
 
 (defmacro with-once-only((&rest args) &body body)
