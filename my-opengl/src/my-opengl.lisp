@@ -125,7 +125,6 @@
 					      (sb-sys:serve-all-events 0))
 					;(restartable (draw))))))
 		
-					;(gl:enable :texture-2d)
 		  (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
 	     
 		  (gl:clear :color-buffer-bit :depth-buffer-bit)
@@ -246,9 +245,9 @@
 					;top triangle fan
 
     (flet ((draw-point(x y z alt az)
-	       (tex-coord (/ az +TWO-PI+) (/ alt PI))
-	       (normal x y z)
-	       (vertex x y z)))
+	     (tex-coord (/ az +TWO-PI+) (/ alt PI))
+	     (normal x y z)
+	     (vertex x y z)))
       	
       (flet ((draw-point-from-array(x-idx y-idx)
 	       (multiple-value-bind (x y z alt az)(funcall fpoints x-idx y-idx)
@@ -272,12 +271,16 @@
 	    (for-each-range (n x-slices)
 	      (draw-point-from-array (- x-slices n 1) (1- y-slices)))))))))
 
-(defun display-globe()
+(defun display-globe(&optional (latitude 40) (longitude 80))
 
   (with-scene ((degrees 60) 1 100 640 480)
 
     (assign-light 0 1 0 0 0)
+
     (translate 0 0 -75)
+    (rotate (- latitude 90) 1 0 0) 
+    (rotate (+ 90 longitude) 0 0 1)
+
     (color-material :front :ambient-and-diffuse)
     ;(color 0 1 0)
 
