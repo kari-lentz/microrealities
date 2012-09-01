@@ -77,9 +77,30 @@
 
 (defmacro using-texture(texture-id &body body)
   `(let ((*texture-id* ,texture-id))
-     (format t "using texture-id ~a~%" *texture-id*)
      (gl:bind-texture :texture-2d *texture-id*)
      ,@body))
+
+(defmacro with-frames(&body body)
+  `(sdl:with-events ()
+    (:quit-event () t)
+    (:idle ()
+	   ;; this lets slime keep working while the main loop is running
+	   ;; in sbcl using the :fd-handler swank:*communication-style*
+	   ;; (something similar might help in some other lisps, not sure which though)
+	   #+(and sbcl (not sb-thread)) (restartable
+					 (sb-sys:serve-all-events 0))
+					;(restartable (draw))))))
+		
+	   (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
+	   
+	   (gl:clear :color-buffer-bit :depth-buffer-bit)
+	   (gl:cull-face :back)
+	     
+	   (gl::matrix-mode :modelview)
+	   (gl:load-identity)
+	   ,@body
+	   (gl:flush)
+	   (sdl:update-display))))
 
 ; with-textures
 ;
@@ -96,7 +117,7 @@
        ,@body
        (gl:delete-textures (list ,@texture-symbols)))))
 
-(defmacro with-scene((field-of-view min-z max-z &optional (viewport-width 640) (viewport-height 480)) &body frms)
+(defmacro with-scene((field-of-view min-z max-z &optional (viewport-width 640) (viewport-height 480)) &body body)
   (with-gensyms (width height screen-ratio)  
     (with-once-only (field-of-view min-z max-z viewport-width viewport-height)
       `(sdl:with-init ()
@@ -115,36 +136,17 @@
 	     (let ((,height (* ,screen-ratio ,width)))
 	       (gl:frustum (- 0 ,width) ,width (- 0 ,height) ,height ,min-z ,max-z))))
        
-	 (sdl:with-events ()
-	   (:quit-event () t)
-	   (:idle ()
-		  ;; this lets slime keep working while the main loop is running
-		  ;; in sbcl using the :fd-handler swank:*communication-style*
-		  ;; (something similar might help in some other lisps, not sure which though)
-		  #+(and sbcl (not sb-thread)) (restartable
-					      (sb-sys:serve-all-events 0))
-					;(restartable (draw))))))
-		
-		  (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
-	     
-		  (gl:clear :color-buffer-bit :depth-buffer-bit)
-		  (gl:cull-face :back)
-	     
-		  (gl::matrix-mode :modelview)
-		  (gl:load-identity)
-		  ,@frms
-		  (gl:flush)
-		  (sdl:update-display)))))))
+	 ,@body))))
 
 (defun display-scene-quad()  
   (let ((w 50)(h 50) (z 0))
      (with-scene ((degrees 60) 1 100 640 480)
        (assign-light 0 1 0 0 0)
        (color-material :front :ambient-and-diffuse)
-       
-       (translate 0 0 -75)
-       (rotate 30 0 1 0)
-       (with-quads (color 1 0 0) (vertex (- w) h (- z)) (color 0.5 0.5 0) (vertex (- w) (- h) (- z)) (color 0.0 0.5 0) (vertex w (- h) (- z)) (color 0.0 1.0 0) (vertex w h (- z))))))
+       (with-frames
+	 (translate 0 0 -75)
+	 (rotate 30 0 1 0)
+	 (with-quads (color 1 0 0) (vertex (- w) h (- z)) (color 0.5 0.5 0) (vertex (- w) (- h) (- z)) (color 0.0 0.5 0) (vertex w (- h) (- z)) (color 0.0 1.0 0) (vertex w h (- z)))))))
 
 (defun umbrella-points(radius slices)
   (let ((ang-inc (/ +TWO-PI+ slices)))
@@ -159,49 +161,56 @@
      (with-scene ((degrees 60) 1 100 640 480)
 
        (assign-light 0 1 0 0 0)
-       (translate 0 0 -75)
-       (color-material :front :ambient-and-diffuse)
-       (color 0 1 0)
 
-       (with-triangle-fan 
-	 (loop for (x y z) in (umbrella-points 50 16) do
-	      (with-normalized (x y z x y z)
+       (with-frames
+	 
+	 (translate 0 0 -75)
+	 (color-material :front :ambient-and-diffuse)
+	 (color 0 1 0)
+
+	 (with-triangle-fan 
+	   (loop for (x y z) in (umbrella-points 50 16) do
+		(with-normalized (x y z x y z)
 		  (normal x y z))
-	      (vertex x y z)))))
+		(vertex x y z))))))
 
 (defun display-scene-triangle()
   
      (with-scene ((degrees 60) 1 100 640 480)
 
-       (assign-light 0 0 1 0 0)
-       (translate 0 0 -75)
        (color-material :front :ambient-and-diffuse)
        (color 0 1 0)
-       (with-triangle-fan
-	 (vertex 0 0 50)
-	 (vertex 35 0 35)
-	 (vertex 0 35 35)
-	 (vertex -35 35 35))))
+       (assign-light 0 0 1 0 0)
+
+       (with-frames
+	   (translate 0 0 -75)
+	 (with-triangle-fan
+	   (vertex 0 0 50)
+	   (vertex 35 0 35)
+	   (vertex 0 35 35)
+	   (vertex -35 35 35)))))
 
 (defun display-scene-quad-strip()
   
      (with-scene ((degrees 60) 1 100 640 480)
 
        (assign-light 0 1 0 0 0)
-       (translate 0 0 -75)
        (color-material :front :ambient-and-diffuse)
        (color 0 1 0)
+       
+       (with-frames
+	 (translate 0 0 -75)
 
-       (let ((radius 50)(slices 16))
-	 (flet ((make-point(alt az)
-		  (from-spherical (x y z radius alt az)
-		    (normal x y z)
+	 (let ((radius 50)(slices 16))
+	   (flet ((make-point(alt az)
+		    (from-spherical (x y z radius alt az)
+		      (normal x y z)
 		    (vertex x y z))))
-	   (let ((delta-ang (/ +TWO-PI+ slices)))
-	     (with-quad-strip 
-	       (for-each-range (n (1+ slices))
-		 (make-point (degrees 15) (* n delta-ang))
-		 (make-point (degrees 30) (* n delta-ang)))))))))			  
+	     (let ((delta-ang (/ +TWO-PI+ slices)))
+	       (with-quad-strip 
+		 (for-each-range (n (1+ slices))
+		   (make-point (degrees 15) (* n delta-ang))
+		   (make-point (degrees 30) (* n delta-ang))))))))))			  
 		
 (with-full-eval		      
   (defstruct sphere-surface x y z az alt)
@@ -275,16 +284,14 @@
 
   (with-scene ((degrees 60) 1 100 640 480)
 
-    (assign-light 0 1 0 0 0)
-
+    (assign-light 1 0 0 0 0)
     (translate 0 0 -75)
     (rotate (- latitude 90) 1 0 0) 
     (rotate (+ 90 longitude) 0 0 1)
 
     (color-material :front :ambient-and-diffuse)
-    ;(color 0 1 0)
 
     (with-textures ((earth "earth.jpg"))
-      (draw-globe 50.0 earth))))
 
-
+      (with-frames
+	(draw-globe 50.0 earth)))))
