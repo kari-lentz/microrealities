@@ -80,9 +80,10 @@
      (gl:bind-texture :texture-2d *texture-id*)
      ,@body))
 
-(defmacro with-frames(&body body)
+(defmacro with-frames((&rest sdl-events) &body body)
   `(sdl:with-events ()
     (:quit-event () t)
+    ,@sdl-events
     (:idle ()
 	   ;; this lets slime keep working while the main loop is running
 	   ;; in sbcl using the :fd-handler swank:*communication-style*
@@ -143,7 +144,7 @@
      (with-scene ((degrees 60) 1 100 640 480)
        (assign-light 0 1 0 0 0)
        (color-material :front :ambient-and-diffuse)
-       (with-frames
+       (with-frames ()
 	 (translate 0 0 -75)
 	 (rotate 30 0 1 0)
 	 (with-quads (color 1 0 0) (vertex (- w) h (- z)) (color 0.5 0.5 0) (vertex (- w) (- h) (- z)) (color 0.0 0.5 0) (vertex w (- h) (- z)) (color 0.0 1.0 0) (vertex w h (- z)))))))
@@ -162,8 +163,7 @@
 
        (assign-light 0 1 0 0 0)
 
-       (with-frames
-	 
+       (with-frames ()
 	 (translate 0 0 -75)
 	 (color-material :front :ambient-and-diffuse)
 	 (color 0 1 0)
@@ -182,7 +182,7 @@
        (color 0 1 0)
        (assign-light 0 0 1 0 0)
 
-       (with-frames
+       (with-frames ()
 	   (translate 0 0 -75)
 	 (with-triangle-fan
 	   (vertex 0 0 50)
@@ -198,7 +198,7 @@
        (color-material :front :ambient-and-diffuse)
        (color 0 1 0)
        
-       (with-frames
+       (with-frames ()
 	 (translate 0 0 -75)
 
 	 (let ((radius 50)(slices 16))
@@ -282,16 +282,28 @@
 
 (defun display-globe(&optional (latitude 40) (longitude 80))
 
-  (with-scene ((degrees 60) 1 100 640 480)
+  (let ((distance 75))
 
-    (assign-light 1 0 0 0 0)
-    (translate 0 0 -75)
-    (rotate (- latitude 90) 1 0 0) 
-    (rotate (+ 90 longitude) 0 0 1)
+    (with-scene ((degrees 60) 1 100 640 480)
 
-    (color-material :front :ambient-and-diffuse)
+      (assign-light 1 0 0 0 0)
+      (color-material :front :ambient-and-diffuse)
 
-    (with-textures ((earth "earth.jpg"))
+      (with-textures ((earth "earth.jpg"))
 
-      (with-frames
-	(draw-globe 50.0 earth)))))
+	(with-frames 
+	    ((:key-down-event 
+	      (:key key) 
+	      (case key 
+		(:sdl-key-up (incf latitude 5))
+		(:sdl-key-down (incf latitude -5))
+		(:sdl-key-left (incf longitude 5))
+		(:sdl-key-right (incf longitude -5))
+		(:sdl-key-pageup (incf distance 5))
+		(:sdl-key-pagedown (incf distance -5)))
+	      (format t "~a~%" key)))
+
+	  (translate 0 0 (- distance))
+	  (rotate (- latitude 90) 1 0 0) 
+	  (rotate (+ 90 longitude) 0 0 1)
+	  (draw-globe 50.0 earth))))))
