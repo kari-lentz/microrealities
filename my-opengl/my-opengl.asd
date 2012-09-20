@@ -5,4 +5,4 @@
   ((:module src
     :components
     ((:file "my-opengl"))))
-  :depends-on (lispbuilder-sdl cl-jpeg cl-opengl my-env utility))
+  :depends-on (lispbuilder-sdl cl-jpeg cl-opengl my-env utility astrolib))
