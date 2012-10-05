@@ -1,4 +1,0 @@
-microrealities
-==============
-
-my utility functions

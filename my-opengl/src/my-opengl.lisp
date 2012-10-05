@@ -1,6 +1,6 @@
 (defpackage :my-opengl
   (:documentation "opengl wrapper")
-  (:use :cl :my-env :utility :gl :astrolib)
+  (:use :cl :my-env :utility :gl :astrolib :star-catalog)
   (:export :run
 	   #:x))
 
