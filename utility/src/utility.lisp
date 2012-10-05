@@ -495,3 +495,11 @@
 (defmacro with-full-eval(&body body)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      ,@body))
+
+(defmacro defeasyclass( name (&rest direct-superclasses) (&rest members) )
+  (let ((sym-o (gensym))(sym-s (gensym)))
+    `(progn
+     (defclass ,name (,@direct-superclasses)
+	(,@(loop for member in members collecting `(,member :initarg ,(to-keyword member) :reader ,member))))
+     (defmethod print-object( (,sym-o ,name) ,sym-s) (format ,sym-s ,(apply #'concatenate 'string (loop for member in members collecting (% "{~a:~a}" (symbol-name member) "~a"))) ,@(loop for member in members collecting `(format-repl (,member ,sym-o)))))
+     (defun ,name ,members (make-instance (quote ,name) ,@(apply #'concatenate 'list (loop for member in members collecting `(,(to-keyword member) ,member))))))))
