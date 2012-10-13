@@ -5,5 +5,5 @@
   ((:module src
     :components
     ((:file "star-catalog")
-     (:file "my-opengl"))))
+     (:file "my-opengl" :depends-on ("star-catalog")))))
   :depends-on (lispbuilder-sdl cl-jpeg cl-opengl my-env utility astrolib cl-store))
