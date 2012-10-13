@@ -1,6 +1,6 @@
 (cl:defpackage :star-catalog
   (:use :cl :utility :cl-store)
-  (:export initialize-stars))
+  (:export initialize-stars star-entry))
 
 (in-package :star-catalog)
 
@@ -18,9 +18,9 @@
 (defun parse-any( str type )
   (funcall ([] *type-stream-decoders* type) str))
 
-(defeasyclass star-entry-t () (sid star-name ra dec magnitude color-index))
+(defeasyclass star-entry () (sid star-name ra dec magnitude color-index))
 
-(defclass star-catalog-t ()
+(defclass star-catalog ()
   ((stars :initform nil :initarg :stars :accessor stars)))
 
 (defparameter *star-catalog-system-path* (pathname "/home/klentz/runtime/astrolib/"))
@@ -46,7 +46,7 @@
 (defun install-stars()
   (let ((stars  
 	 (extract-objects *star-csv* 
-			  :class-factory #'star-entry-t 
+			  :class-factory #'star-entry 
 			  :field-specs '( (integer 0) (string 6) (double-float 7) (double-float 8) (double-float 10) (double-float 13))
 			  :filter-p (lambda(o) (<= (magnitude o) 8.0)))))
     (cl-store:store stars *star-store*)))
