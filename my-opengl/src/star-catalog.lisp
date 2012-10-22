@@ -1,4 +1,4 @@
-(cl:defpackage :star-catalog
+(defpackage :star-catalog
   (:use :cl :utility :cl-store)
   (:export initialize-stars star-entry))
 
@@ -51,7 +51,7 @@
 			  :filter-p (lambda(o) (<= (magnitude o) 8.0)))))
     (cl-store:store stars *star-store*)))
 
-(defun initialize-stars()
+(defun initialize-stars(&optional filter)
   (handler-bind
       ((file-error (lambda(err)(declare (ignore err))(invoke-restart 'install-it))))
     (let ((stars
@@ -59,4 +59,6 @@
 	       (cl-store:restore *star-store*)
 	     (install-it()
 	       (install-stars)))))
-      stars)))
+      (if filter 
+	  (remove-if-not filter stars)
+	  stars))))

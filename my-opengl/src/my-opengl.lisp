@@ -10,11 +10,14 @@
 (defconstant +TWO-PI+ (* 2 PI))
 (defconstant +HALF-PI+ (* 0.5 PI))
 (defparameter *astro-date* (astro-date-now))
-
+ 
 (with-full-eval
 
   (defun degrees(num-degrees)
     (* (/ num-degrees 180) PI))
+
+  (defun hours(num-hours)
+    (* (/ num-hours 24.0) +TWO-PI+))
 
   (defun spherical-to-cartesian(rad alt az)
     (let ((sin-alt (sin alt))) 
@@ -37,6 +40,9 @@
   ` (multiple-value-bind (,x-var ,y-var ,z-var) 
 	(normalize ,x ,y ,z)  
       ,@body))
+
+(defmacro with-points(&body body)
+  `(gl:with-primitives :points ,@body))
 
 (defmacro with-triangle(&body body)
   `(gl:with-primitives :triangles ,@body))
@@ -323,6 +329,11 @@
 
 (defsetf get-gl-value set-gl-value)
 
+(defmacro with-x-y-z-aref((x-symbol y-symbol z-symbol) vector &body body)
+  (with-once-only (vector)
+    `(let ((,x-symbol (aref ,vector 0))(,y-symbol (aref ,vector 1))(,z-symbol (aref ,vector 2))) 
+       ,@body)))
+
 (defmacro with-x-y-z((x-symbol y-symbol z-symbol) gl-vector &body body)
   (with-gensyms (!v)
     (with-once-only (gl-vector)
@@ -342,6 +353,8 @@
 	    (setf (get-gl-value ret row col) total))))
       ret)))
  
+(defparameter *sky-matrix* (make-gl-identity-matrix))
+
 (defun *m (&rest matrices)
   (reduce (lambda(x y) (gl-matrix-multiply y x)) (reverse matrices)))
 
@@ -360,6 +373,46 @@
     (setf (get-gl-value ret 2 0) (- (sin ang)))
     (setf (get-gl-value ret 2 2) (cos ang))
     ret))
+
+(defun raw-rotate-x(ang)
+  (let ((ret (make-gl-identity-matrix)))
+    (setf (get-gl-value ret 1 1) (cos ang))
+    (setf (get-gl-value ret 1 2) (- (sin ang)))
+    (setf (get-gl-value ret 2 1) (sin ang))
+    (setf (get-gl-value ret 2 2) (cos ang))
+    ret))
+
+(defmacro with-star-db( (stars-symbol &optional limiting-magnitude) &body body)
+  (with-once-only (limiting-magnitude)
+    `(let ((filter (and ,limiting-magnitude (lambda(star) (<= (magnitude star) ,limiting-magnitude)))))
+       (let ((,stars-symbol (initialize-stars filter)))
+	 ,@body))))
+
+(defmacro with-sky(sky-matrix dot-product (latitude longitude fov) &body body)
+  (with-once-only (latitude longitude fov)
+    `(let ((,sky-matrix (*m 
+			(raw-rotate-x (- 90 ,latitude))
+			(raw-rotate-z (- (degrees ,longitude) (hours (gst *astro-date*)) +HALF-PI+))))
+	  (,dot-product (-(cos (degrees ,fov)))))
+      ,@body)))
+
+(defmacro for-each-visible-star(x-symbol y-symbol z-symbol star-symbol (stars sky-matrix dot-product) &body body)
+  (with-gensyms (!x !y !z)
+    (format t "loaded stars~%")
+    `(loop for ,star-symbol in ,stars
+	do
+	  (with-slots (dec ra) ,star-symbol
+	    (from-spherical (,!x ,!y ,!z 1.0 (- +HALF-PI+ (degrees dec)) (hours ra))
+	      (with-x-y-z (,x-symbol ,y-symbol ,z-symbol) (*m ,sky-matrix (make-gl-vector ,!x ,!y ,!z 0.0))
+		(when (< ,z-symbol ,dot-product)
+		  ,@body)))))))
+
+
+;    x
+;    x
+;xxxxxxxxxx
+;    x
+;    x
 
 (defparameter *cr-lf* (format nil "~%"))
 
@@ -387,12 +440,12 @@
 		(otherwise (format nil "illegal dimensions")))))))
 
 (defmacro with-astro-date((year month day &optional (hour 0) (minute 0) (second 0) dst (tz 0)) &body body) 
-    `(let ((*astro-date* (astro-date ,year ,month ,day ,hour ,minute ,second ,dst ,tz)))
-       ,@body))
+  `(let ((*astro-date* (astro-date ,year ,month ,day ,hour ,minute ,second ,dst ,tz)))
+     ,@body))
 				   
-(defun display-globe(&optional (latitude 40) (longitude 80))
+(defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
 
-  (let ((distance 75))
+  (let ((distance 75)(*astro-date* (or astro-date (astro-date-now))))
 
     (with-scene ((degrees 60) 1 100 640 480)
 
@@ -418,10 +471,30 @@
 	  (rotate longitude 0 0 1)
 	  (rotate 270 0 0 1)
 
-	  ;this will be the sun's position
-	  ;
-	  (with-x-y-z (x y z) (*m (raw-rotate-z (* +TWO-PI+ (/ (gst *astro-date*) -24.0))) (gl-vector-from-astro-vector (sun-pos *astro-date*)))
-	    (assign-light 0 x y z 0))
+	  (with-pushed-matrix
+	    (rotate (* -15.0 (gst *astro-date*) ) 0 0 1)
+	    (with-x-y-z (x y z) (gl-vector-from-astro-vector (sun-pos *astro-date*))
+	      (assign-light 0 x y z 0)))
 
 	  (rotate -180 0 0 1)
 	  (draw-globe 50.0 earth))))))
+
+(defun draw-stars(stars sky-matrix dot-product)
+  (with-points
+    (format t "loaded stars~%")
+    (loop for star in stars
+       do
+	 (with-slots (dec ra) star
+	   (from-spherical (x y z 1.0 (- +HALF-PI+ (degrees dec)) (hours ra))
+	     (with-x-y-z (x y z) (*m sky-matrix (make-gl-vector x y z 0.0))
+	       ;(declare (ignore x y))
+	       (when (< z dot-product)
+		 (vertex x y z))))))))
+	       		     
+(defun test-stars()
+  (with-star-db(stars 3.5)
+    (with-sky sky-matrix dot-product (45 81 60)
+	(for-each-visible-star x y z star (stars sky-matrix dot-product)
+	  (format t "~a:~a:~a ~a~%" x y z star)))))
+	     
+			   
