@@ -26,6 +26,10 @@
        (* rad sin-alt (sin az))
        (* rad (cos alt))))))
 
+(defmacro with-degrees((&rest degrees) &body body)
+  `(let ,(mapcar (lambda(degree) `(,degree (degrees ,degree))) degrees) 
+     ,@body))
+
 (defmacro from-spherical((x-var y-var z-var radius alt-ang az-ang) &body body) 
  ` (multiple-value-bind (,x-var ,y-var ,z-var) 
        (spherical-to-cartesian ,radius ,alt-ang ,az-ang)  
@@ -87,6 +91,13 @@
      (gl:bind-texture :texture-2d *texture-id*)
      ,@body))
 
+(defmacro restartable (&body body)
+  "helper macro since we use continue restarts a lot
+ (remember to hit C in slime or pick the restart so errors don't kill the app)"
+  `(restart-case
+      (progn ,@body)
+    (continue () :report "Continue")))
+
 (defmacro with-frames((&rest sdl-events) &body body)
   `(sdl:with-events ()
     (:quit-event () t)
@@ -95,20 +106,25 @@
 	   ;; this lets slime keep working while the main loop is running
 	   ;; in sbcl using the :fd-handler swank:*communication-style*
 	   ;; (something similar might help in some other lisps, not sure which though)
-	   #+(and sbcl (not sb-thread)) (restartable
-					 (sb-sys:serve-all-events 0))
+	   ;#+(and sbcl (not sb-thread)) (restartable
+					 ;(sb-sys:serve-all-events 0))
 					;(restartable (draw))))))
+
+	   #+(and sbcl (not sb-thread)) (restartable
+					  (sb-sys:serve-all-events 0))
+	   (restartable 
 		
-	   (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
+	     (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
 	   
-	   (gl:clear :color-buffer-bit :depth-buffer-bit)
-	   (gl:cull-face :back)
+	     (gl:clear :color-buffer-bit :depth-buffer-bit)
+	     (gl:cull-face :back)
 	     
-	   (gl::matrix-mode :modelview)
-	   (gl:load-identity)
-	   ,@body
-	   (gl:flush)
-	   (sdl:update-display))))
+	     (gl::matrix-mode :modelview)
+	     (gl:load-identity)
+	     ,@body
+	     (gl:flush)
+	     ;(format t "opengl context:~a db:~a~%" (sdl:opengl-context-p) (sdl:double-buffered-p))
+	     (sdl:update-display)))))
 
 ; with-textures
 ;
@@ -128,8 +144,8 @@
 (defmacro with-scene((field-of-view min-z max-z &optional (viewport-width 640) (viewport-height 480)) &body body)
   (with-gensyms (width height screen-ratio)  
     (with-once-only (field-of-view min-z max-z viewport-width viewport-height)
-      `(sdl:with-init ()
-	 (sdl:window ,viewport-width ,viewport-height :flags sdl:sdl-opengl)
+      `(sdl:with-init (sdl:sdl-init-video)
+	 (sdl:window ,viewport-width ,viewport-height :opengl t :opengl-attributes '((:SDL-GL-DOUBLEBUFFER 1)))
 	 ;; cl-opengl needs platform specific support to be able to load GL
 	 ;; extensions, so we need to tell it how to do so in lispbuilder-sdl
 	 (setf cl-opengl-bindings:*gl-get-proc-address* #'sdl-cffi::sdl-gl-get-proc-address)
@@ -139,11 +155,11 @@
 	 (gl::matrix-mode :projection)
 	 (gl:load-identity)
       
-	 (let ((,width (* (tan ,field-of-view) ,min-z))) 
-	   (let ((,screen-ratio (/ ,viewport-height ,viewport-width))) 
-	     (let ((,height (* ,screen-ratio ,width)))
-	       (gl:frustum (- 0 ,width) ,width (- 0 ,height) ,height ,min-z ,max-z))))
-       
+	 (with-degrees (,field-of-view)
+	   (let ((,width (* (tan ,field-of-view) ,min-z))) 
+	     (let ((,screen-ratio (/ ,viewport-height ,viewport-width))) 
+	       (let ((,height (* ,screen-ratio ,width)))
+		 (gl:frustum (- 0 ,width) ,width (- 0 ,height) ,height ,min-z ,max-z)))))
 	 ,@body))))
 
 (defun display-scene-quad()  
@@ -166,7 +182,7 @@
 
 (defun display-scene-triangle-fan()
   
-     (with-scene ((degrees 60) 1 100 640 480)
+     (with-scene (60 1 100 640 480)
 
        (assign-light 0 1 0 0 0)
 
@@ -183,7 +199,7 @@
 
 (defun display-scene-triangle()
   
-     (with-scene ((degrees 60) 1 100 640 480)
+     (with-scene (60 1 100 640 480)
 
        (color-material :front :ambient-and-diffuse)
        (color 0 1 0)
@@ -199,7 +215,7 @@
 
 (defun display-scene-quad-strip()
   
-     (with-scene ((degrees 60) 1 100 640 480)
+     (with-scene (60 1 100 640 480)
 
        (assign-light 0 1 0 0 0)
        (color-material :front :ambient-and-diffuse)
@@ -218,6 +234,15 @@
 		 (for-each-range (n (1+ slices))
 		   (make-point (degrees 15) (* n delta-ang))
 		   (make-point (degrees 30) (* n delta-ang))))))))))			  
+
+(defun display-scene-points()
+  (with-scene (60 1 100 640 480)
+    (with-frames ()
+      (translate 0 0 -98.0)
+      (with-points
+	(vertex 10 0 0)
+	(vertex 10 10 0)
+	(vertex -10 -10 0)))))
 		
 (with-full-eval		      
   (defstruct sphere-surface x y z az alt)
@@ -388,13 +413,15 @@
        (let ((,stars-symbol (initialize-stars filter)))
 	 ,@body))))
 
-(defmacro with-sky(sky-matrix dot-product (latitude longitude fov) &body body)
-  (with-once-only (latitude longitude fov)
-    `(let ((,sky-matrix (*m 
-			(raw-rotate-x (- 90 ,latitude))
-			(raw-rotate-z (- (degrees ,longitude) (hours (gst *astro-date*)) +HALF-PI+))))
-	  (,dot-product (-(cos (degrees ,fov)))))
-      ,@body)))
+(defmacro with-sky(sky-matrix dot-product sky-limit (latitude longitude fov min-z max-z ratio) &body body)
+  (with-once-only (latitude longitude fov min-z max-z ratio)
+    `(with-degrees (,latitude ,longitude ,fov)
+       (let ((,sky-matrix (*m 
+			   (raw-rotate-x (- +HALF-PI+ ,latitude))
+			   (raw-rotate-z (- ,longitude (hours (gst *astro-date*)) +HALF-PI+))))
+	     (,dot-product (-(cos ,fov)))
+	     (,sky-limit (+ (* ,ratio ,max-z) (* (- 1 ,ratio ) ,min-z))))
+	 ,@body))))
 
 (defmacro for-each-visible-star(x-symbol y-symbol z-symbol star-symbol (stars sky-matrix dot-product) &body body)
   (with-gensyms (!x !y !z)
@@ -405,14 +432,8 @@
 	    (from-spherical (,!x ,!y ,!z 1.0 (- +HALF-PI+ (degrees dec)) (hours ra))
 	      (with-x-y-z (,x-symbol ,y-symbol ,z-symbol) (*m ,sky-matrix (make-gl-vector ,!x ,!y ,!z 0.0))
 		(when (< ,z-symbol ,dot-product)
+		  (format t ">>>>>> ~a:~a:~a -- ~a~%" ,x-symbol ,y-symbol ,z-symbol ,dot-product)
 		  ,@body)))))))
-
-
-;    x
-;    x
-;xxxxxxxxxx
-;    x
-;    x
 
 (defparameter *cr-lf* (format nil "~%"))
 
@@ -443,17 +464,67 @@
   `(let ((*astro-date* (astro-date ,year ,month ,day ,hour ,minute ,second ,dst ,tz)))
      ,@body))
 				   
-(defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
+(defun display-globe-new(&optional (latitude 40) (longitude 80) astro-date)
 
-  (let ((distance 75)(*astro-date* (or astro-date (astro-date-now))))
+  (let ((distance 75)(*astro-date* (or astro-date (astro-date-now)))(fov 60)(min-z 1)(max-z 100))
 
-    (with-scene ((degrees 60) 1 100 640 480)
+    (with-scene (fov min-z max-z 640 480)
 
       ;(assign-light 1 0 0 0 0)
       (color-material :front :ambient-and-diffuse)
 
       (with-textures ((earth "earth.jpg"))
 
+	(with-star-db(stars 3.5)
+	  
+	  (with-frames 
+	      ((:key-down-event 
+		(:key key) 
+		(case key 
+		  (:sdl-key-up (incf latitude 5))
+		  (:sdl-key-down (incf latitude -5))
+		  (:sdl-key-left (incf longitude 5))
+		  (:sdl-key-right (incf longitude -5))
+		  (:sdl-key-pageup (incf distance 5))
+		  (:sdl-key-pagedown (incf distance -5)))
+		(format t "~a~%" key)))
+
+	    (with-pushed-matrix
+	      (with-sky sky-matrix dot-product sky-limit (latitude longitude fov min-z max-z 0.98)
+	    	(with-points
+	    	  (for-each-visible-star x y z star (stars sky-matrix dot-product)
+	    	    (let ((x (* sky-limit x))(y (* sky-limit y))(z (- sky-limit)))
+	    	      ;(format t "~a:~a:~a~%" x y z)
+	    	      (color 1.0 1.0 1.0)
+	    	      (vertex x y z)
+	    	      )))))
+
+	    (with-pushed-matrix
+	      (translate 0 0 (- distance))
+	      (rotate (- latitude 90) 1 0 0) 
+	      (rotate longitude 0 0 1)
+	      (rotate 270 0 0 1)
+	      
+	      (with-pushed-matrix
+		(rotate (* -15.0 (gst *astro-date*) ) 0 0 1)
+		(with-x-y-z (x y z) (gl-vector-from-astro-vector (sun-pos *astro-date*))
+		  (assign-light 0 x y z 0)))
+	    
+	      (rotate -180 0 0 1)
+	      ;(draw-globe 50.0 earth)
+)))))))
+
+(defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
+
+  (let ((distance 75)(*astro-date* (or astro-date (astro-date-now)))(fov 60)(min-z 1)(max-z 100))
+
+    (with-scene (fov min-z max-z 640 480)
+
+					;(assign-light 1 0 0 0 0)
+      (color-material :front :ambient-and-diffuse)
+      
+      (with-textures ((earth "earth.jpg"))
+	
 	(with-frames 
 	    ((:key-down-event 
 	      (:key key) 
@@ -470,31 +541,20 @@
 	  (rotate (- latitude 90) 1 0 0) 
 	  (rotate longitude 0 0 1)
 	  (rotate 270 0 0 1)
-
+	  
 	  (with-pushed-matrix
 	    (rotate (* -15.0 (gst *astro-date*) ) 0 0 1)
 	    (with-x-y-z (x y z) (gl-vector-from-astro-vector (sun-pos *astro-date*))
 	      (assign-light 0 x y z 0)))
-
+	  
 	  (rotate -180 0 0 1)
 	  (draw-globe 50.0 earth))))))
-
-(defun draw-stars(stars sky-matrix dot-product)
-  (with-points
-    (format t "loaded stars~%")
-    (loop for star in stars
-       do
-	 (with-slots (dec ra) star
-	   (from-spherical (x y z 1.0 (- +HALF-PI+ (degrees dec)) (hours ra))
-	     (with-x-y-z (x y z) (*m sky-matrix (make-gl-vector x y z 0.0))
-	       ;(declare (ignore x y))
-	       (when (< z dot-product)
-		 (vertex x y z))))))))
 	       		     
 (defun test-stars()
-  (with-star-db(stars 3.5)
-    (with-sky sky-matrix dot-product (45 81 60)
-	(for-each-visible-star x y z star (stars sky-matrix dot-product)
-	  (format t "~a:~a:~a ~a~%" x y z star)))))
+  (with-star-db (stars 3.5)
+    (with-sky sky-matrix dot-product sky-limit (45 81 60 1 100 0.99)
+      (format t "~a~%" sky-limit)
+      (for-each-visible-star x y z star (stars sky-matrix dot-product)
+	(format t "~a:~a:~a ~a~%" x y z star)))))
 	     
 			   
