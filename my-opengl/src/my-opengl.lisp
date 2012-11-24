@@ -9,8 +9,21 @@
 (defconstant +aspect+ 1.0)
 (defconstant +TWO-PI+ (* 2 PI))
 (defconstant +HALF-PI+ (* 0.5 PI))
-(defparameter *astro-date* (astro-date-now))
- 
+
+(define-specials ((*viewport-width* 640)
+		(*viewport-height* 480)
+		(*astro-date* (astro-date-now))
+		(*sky-closure* nil)
+		(*limiting-magnitude* 3.5)
+		(*latitude* 41)
+		(*longitude* 85)
+		(*fov* 60)
+		(*min-z* 1)
+		(*max-z* 100)
+		(*ratio* 0.98)
+		(*limiting-magnitude* 3.5))
+    print-specials)
+    
 (with-full-eval
 
   (defun degrees(num-degrees)
@@ -112,8 +125,8 @@
 
 	   #+(and sbcl (not sb-thread)) (restartable
 					  (sb-sys:serve-all-events 0))
-	   (restartable 
-		
+
+	   (restartable
 	     (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
 	   
 	     (gl:clear :color-buffer-bit :depth-buffer-bit)
@@ -123,7 +136,7 @@
 	     (gl:load-identity)
 	     ,@body
 	     (gl:flush)
-	     ;(format t "opengl context:~a db:~a~%" (sdl:opengl-context-p) (sdl:double-buffered-p))
+					;(format t "opengl context:~a db:~a~%" (sdl:opengl-context-p) (sdl:double-buffered-p))
 	     (sdl:update-display)))))
 
 ; with-textures
@@ -143,34 +156,39 @@
 
 (defmacro with-scene((field-of-view min-z max-z &optional (viewport-width 640) (viewport-height 480)) &body body)
   (with-gensyms (width height screen-ratio)  
-    (with-once-only (field-of-view min-z max-z viewport-width viewport-height)
-      `(sdl:with-init (sdl:sdl-init-video)
-	 (sdl:window ,viewport-width ,viewport-height :opengl t :opengl-attributes '((:SDL-GL-DOUBLEBUFFER 1)))
+    `(let ((*fov* ,field-of-view) 
+	   (*min-z* ,min-z) 
+	   (*max-z* ,max-z) 
+	   (*viewport-width* ,viewport-width) 
+	   (*viewport-height* ,viewport-height))
+       (sdl:with-init (sdl:sdl-init-video)
+	 (sdl:window *viewport-width* *viewport-height* :opengl t :opengl-attributes '((:SDL-GL-DOUBLEBUFFER 1)))
 	 ;; cl-opengl needs platform specific support to be able to load GL
 	 ;; extensions, so we need to tell it how to do so in lispbuilder-sdl
 	 (setf cl-opengl-bindings:*gl-get-proc-address* #'sdl-cffi::sdl-gl-get-proc-address)
-	 (gl:viewport 0 0 ,viewport-width ,viewport-height)
+	 (gl:viewport 0 0 *viewport-width* *viewport-height*)
 	 (sdl:enable-key-repeat 500 150)
-      
+	 
 	 (gl::matrix-mode :projection)
 	 (gl:load-identity)
-      
-	 (with-degrees (,field-of-view)
-	   (let ((,width (* (tan ,field-of-view) ,min-z))) 
-	     (let ((,screen-ratio (/ ,viewport-height ,viewport-width))) 
+	 
+	 (with-degrees (*fov*)
+	   (let ((,width (* (tan *fov*) *min-z*))) 
+	     (let ((,screen-ratio (/ *viewport-height* *viewport-width*))) 
 	       (let ((,height (* ,screen-ratio ,width)))
-		 (gl:frustum (- 0 ,width) ,width (- 0 ,height) ,height ,min-z ,max-z)))))
+		 (gl:frustum (- 0 ,width) ,width (- 0 ,height) ,height *min-z* *max-z*)))))
 	 ,@body))))
 
 (defun display-scene-quad()  
   (let ((w 50)(h 50) (z 0))
-     (with-scene ((degrees 60) 1 100 640 480)
+     (with-scene (60 1 100 640 480)
        (assign-light 0 1 0 0 0)
        (color-material :front :ambient-and-diffuse)
        (with-frames ()
 	 (translate 0 0 -75)
 	 (rotate 30 0 1 0)
-	 (with-quads (color 1 0 0) (vertex (- w) h (- z)) (color 0.5 0.5 0) (vertex (- w) (- h) (- z)) (color 0.0 0.5 0) (vertex w (- h) (- z)) (color 0.0 1.0 0) (vertex w h (- z)))))))
+	 (with-quads 
+	   (color 1 0 0) (vertex (- w) h (- z)) (color 0.5 0.5 0) (vertex (- w) (- h) (- z)) (color 0.0 0.5 0) (vertex w (- h) (- z)) (color 0.0 1.0 0) (vertex w h (- z)))))))
 
 (defun umbrella-points(radius slices)
   (let ((ang-inc (/ +TWO-PI+ slices)))
@@ -377,8 +395,14 @@
 	      (incf total (* (get-gl-value matrix-1 row x) (get-gl-value matrix-2 x col))))
 	    (setf (get-gl-value ret row col) total))))
       ret)))
- 
-(defparameter *sky-matrix* (make-gl-identity-matrix))
+
+(defun scale-gl-matrix(matrix scaling)
+  (let ((cols (gl-matrix-cols matrix))(rows (gl-matrix-rows matrix)))
+    (let ((ret (make-gl-matrix :cols cols :rows rows :values (make-array (* cols rows) :initial-element 0.0))))
+      (for-each-range (row rows)
+	(for-each-range (col cols)
+	  (setf (get-gl-value ret row col) (* scaling (get-gl-value matrix row col)))))
+      ret)))
 
 (defun *m (&rest matrices)
   (reduce (lambda(x y) (gl-matrix-multiply y x)) (reverse matrices)))
@@ -407,34 +431,55 @@
     (setf (get-gl-value ret 2 2) (cos ang))
     ret))
 
-(defmacro with-star-db( (stars-symbol &optional limiting-magnitude) &body body)
-  (with-once-only (limiting-magnitude)
-    `(let ((filter (and ,limiting-magnitude (lambda(star) (<= (magnitude star) ,limiting-magnitude)))))
+(define-condition bad-arguments (error)
+  ((msg :initarg :msg :initform "see specs for GL matrix functions"  :reader msg))
+  (:report (lambda (o stream) (format stream "bad argments: ~a" (msg o)))))
+
+(defmacro GL(&rest args)
+  (cond 
+    ((eq args nil) `(make-gl-identity-matrix))
+    ((eq (length args) 3)  `(make-gl-vector ,@(mapcar #'float args) 0.0))
+    ((eq (length args) 4)  `(make-gl-vector ,@(mapcar #'float args)))
+    (t (error 'bad-arguments)))) 
+
+(defmacro ROT(xyz (angle &optional (units 'radians)) &optional gl-matrix)
+  (unless (find xyz '(x y z)) (error 'bad-arguments :msg "xyz something other than [xyz]"))
+  (unless (find units '(radians degrees)) (error 'bad-arguments :msg "units must be radians or degrees"))
+  (let ((rot-mat `(,(.sym 'raw-rotate- xyz) ,(if (eq units 'degrees) `(degrees ,angle) angle))))
+    (if gl-matrix
+	`(*m ,rot-mat ,gl-matrix)
+	rot-mat)))
+ 
+(defmacro with-star-db( (stars-symbol) &body body)
+    `(let ((filter (and *limiting-magnitude* (lambda(star) (<= (magnitude star) *limiting-magnitude*)))))
        (let ((,stars-symbol (initialize-stars filter)))
-	 ,@body))))
+	 ,@body)))
+	
+(defun make-sky-closure(latitude longitude fov min-z max-z ratio)
+  (with-degrees (latitude longitude fov)
+    (let ((sky-matrix (*m
+		       (raw-rotate-x (- +HALF-PI+ latitude))
+		       (raw-rotate-z (- longitude (hours (gst *astro-date*)) +HALF-PI+))))
+	       (dot-product (-(cos fov)))
+	       (sky-limit (+ (* ratio max-z) (* (- 1 ratio) min-z))))
+      (lambda(dec ra action) 
+	(from-spherical (x y z 1.0 (- +HALF-PI+ (degrees dec)) (hours ra))
+	  (let ((v (*m sky-matrix (make-gl-vector x y z 0.0))))
+	    (when (>= dot-product (get-gl-value v 2 0))
+	      (funcall action (scale-gl-matrix v sky-limit)))))))))
 
-(defmacro with-sky(sky-matrix dot-product sky-limit (latitude longitude fov min-z max-z ratio) &body body)
-  (with-once-only (latitude longitude fov min-z max-z ratio)
-    `(with-degrees (,latitude ,longitude ,fov)
-       (let ((,sky-matrix (*m 
-			   (raw-rotate-x (- +HALF-PI+ ,latitude))
-			   (raw-rotate-z (- ,longitude (hours (gst *astro-date*)) +HALF-PI+))))
-	     (,dot-product (-(cos ,fov)))
-	     (,sky-limit (+ (* ,ratio ,max-z) (* (- 1 ,ratio ) ,min-z))))
-	 ,@body))))
+(defmacro when-visible((x-symbol y-symbol z-symbol)(dec ra) &body body)
+  (with-gensyms (!v)
+    `(funcall *sky-closure* ,dec ,ra 
+	      (lambda(,!v)
+		(with-x-y-z (,x-symbol ,y-symbol ,z-symbol) ,!v
+		  ,@body)))))
 
-(defmacro for-each-visible-star(x-symbol y-symbol z-symbol star-symbol (stars sky-matrix dot-product) &body body)
-  (with-gensyms (!x !y !z)
-    (format t "loaded stars~%")
-    `(loop for ,star-symbol in ,stars
-	do
-	  (with-slots (dec ra) ,star-symbol
-	    (from-spherical (,!x ,!y ,!z 1.0 (- +HALF-PI+ (degrees dec)) (hours ra))
-	      (with-x-y-z (,x-symbol ,y-symbol ,z-symbol) (*m ,sky-matrix (make-gl-vector ,!x ,!y ,!z 0.0))
-		(when (< ,z-symbol ,dot-product)
-		  (format t ">>>>>> ~a:~a:~a -- ~a~%" ,x-symbol ,y-symbol ,z-symbol ,dot-product)
-		  ,@body)))))))
-
+(defmacro with-sky((latitude longitude ratio) &body body)
+  `(let ((*latitude* ,latitude)(*longitude* ,longitude)(*ratio* ,ratio))
+     (let ((*sky-closure* (make-sky-closure *latitude* *longitude* *fov* *min-z* *max-z* *ratio*)))
+       ,@body)))
+	      
 (defparameter *cr-lf* (format nil "~%"))
 
 (defmethod print-object ((m gl-matrix) stream)
@@ -463,8 +508,17 @@
 (defmacro with-astro-date((year month day &optional (hour 0) (minute 0) (second 0) dst (tz 0)) &body body) 
   `(let ((*astro-date* (astro-date ,year ,month ,day ,hour ,minute ,second ,dst ,tz)))
      ,@body))
+
+(defun draw-stars(stars)
+  (with-pushed-matrix
+    (loop for star in stars do
+	 (with-slots (dec ra magnitude) star
+	   (when-visible (x y z) (dec ra)
+	     (gl:point-size (1+ (- *limiting-magnitude* magnitude)))
+	     (with-points
+	       (vertex x y z)))))))
 				   
-(defun display-globe-new(&optional (latitude 40) (longitude 80) astro-date)
+(defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
 
   (let ((distance 75)(*astro-date* (or astro-date (astro-date-now)))(fov 60)(min-z 1)(max-z 100))
 
@@ -475,7 +529,7 @@
 
       (with-textures ((earth "earth.jpg"))
 
-	(with-star-db(stars 3.5)
+	(with-star-db(stars)
 	  
 	  (with-frames 
 	      ((:key-down-event 
@@ -489,15 +543,8 @@
 		  (:sdl-key-pagedown (incf distance -5)))
 		(format t "~a~%" key)))
 
-	    (with-pushed-matrix
-	      (with-sky sky-matrix dot-product sky-limit (latitude longitude fov min-z max-z 0.98)
-	    	(with-points
-	    	  (for-each-visible-star x y z star (stars sky-matrix dot-product)
-	    	    (let ((x (* sky-limit x))(y (* sky-limit y))(z (- sky-limit)))
-	    	      ;(format t "~a:~a:~a~%" x y z)
-	    	      (color 1.0 1.0 1.0)
-	    	      (vertex x y z)
-	    	      )))))
+	    (with-sky (latitude longitude 0.98)
+	      (draw-stars stars))
 
 	    (with-pushed-matrix
 	      (translate 0 0 (- distance))
@@ -511,50 +558,26 @@
 		  (assign-light 0 x y z 0)))
 	    
 	      (rotate -180 0 0 1)
-	      ;(draw-globe 50.0 earth)
-)))))))
-
-(defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
-
-  (let ((distance 75)(*astro-date* (or astro-date (astro-date-now)))(fov 60)(min-z 1)(max-z 100))
-
-    (with-scene (fov min-z max-z 640 480)
-
-					;(assign-light 1 0 0 0 0)
-      (color-material :front :ambient-and-diffuse)
-      
-      (with-textures ((earth "earth.jpg"))
-	
-	(with-frames 
-	    ((:key-down-event 
-	      (:key key) 
-	      (case key 
-		(:sdl-key-up (incf latitude 5))
-		(:sdl-key-down (incf latitude -5))
-		(:sdl-key-left (incf longitude 5))
-		(:sdl-key-right (incf longitude -5))
-		(:sdl-key-pageup (incf distance 5))
-		(:sdl-key-pagedown (incf distance -5)))
-	      (format t "~a~%" key)))
-
-	  (translate 0 0 (- distance))
-	  (rotate (- latitude 90) 1 0 0) 
-	  (rotate longitude 0 0 1)
-	  (rotate 270 0 0 1)
-	  
-	  (with-pushed-matrix
-	    (rotate (* -15.0 (gst *astro-date*) ) 0 0 1)
-	    (with-x-y-z (x y z) (gl-vector-from-astro-vector (sun-pos *astro-date*))
-	      (assign-light 0 x y z 0)))
-	  
-	  (rotate -180 0 0 1)
-	  (draw-globe 50.0 earth))))))
-	       		     
+	      (draw-globe 50.0 earth))))))))
+	       		           
 (defun test-stars()
-  (with-star-db (stars 3.5)
-    (with-sky sky-matrix dot-product sky-limit (45 81 60 1 100 0.99)
-      (format t "~a~%" sky-limit)
-      (for-each-visible-star x y z star (stars sky-matrix dot-product)
-	(format t "~a:~a:~a ~a~%" x y z star)))))
-	     
-			   
+  (with-star-db (stars)
+    (with-sky (45 81 0.99)
+      (loop for star in stars
+	 do
+	   (with-slots (dec ra star-name) star 
+	     (when-visible (x y z)(dec ra) 
+	       (format t "~a:~a:~a:~a:~a:~a~%" star-name dec ra x y z)))))))
+
+(defun i-test-stars()
+  (macroexpand-1
+   `(with-sky (45 81 60 0.99)
+      (format t "~a~%" (when-above-horizon (degrees 30) (hours 12))))))
+
+(defun display-stars()
+  (let ((*limiting-magnitude* 3.5))
+    (with-scene (60 1 100 640 480)
+      (with-star-db(stars)
+	(with-frames ()
+	  (with-sky (41 85 0.98)
+	    (draw-stars stars))))))) 
