@@ -80,7 +80,8 @@
 	   :with-rebind
 	   :repeat-apply
 	   :filled-list
-	   :with-full-eval))
+	   :with-full-eval
+	   :define-specials))
 
 (in-package :utility)
 
@@ -506,3 +507,15 @@
 	 (defmethod print-object( (,sym-o ,name) ,sym-s) (format ,sym-s ,(apply #'concatenate 'string (loop for member in members collecting (% "{~a:~a}" (symbol-name member) "~a"))) ,@(loop for member in members collecting `(format-repl (,member ,sym-o)))))
 	 (defun ,name ,members (make-instance (quote ,name) ,@(apply #'concatenate 'list (loop for member in members collecting `(,(to-keyword member) ,member)))))
 	 ,@exports))))
+
+(defmacro define-specials(special-specs &optional print-specials-function)
+  `(progn
+     ,@(remove-nil
+	`(
+	  ,@(loop for (name value) in special-specs collecting
+		 `(defparameter ,name ,value))
+	    ,(when print-specials-function
+		   `(defun ,print-specials-function ()
+		      ,@(loop for (name value) in special-specs collecting
+			     `(format t "~a:~a~%" ,(symbol-name name) ,name)))))))) 
+     
