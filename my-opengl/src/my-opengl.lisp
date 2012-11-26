@@ -23,7 +23,75 @@
 		(*ratio* 0.98)
 		(*limiting-magnitude* 3.5))
     print-specials)
-    
+
+(defmacro color-r(rgb)
+  `(ash ,rgb -16))
+
+(defmacro color-g(rgb)
+  `(ash (logand ,rgb #x00ff00) -8))
+
+(defmacro color-b(rgb)
+  `(logand ,rgb #x0000ff))
+
+(defmacro define-color-array(lo-color-index hi-color-index gap rgb-component)
+  `(defparameter ,(.sym '*star-colors- rgb-component '*) (make-array ,(round (1+ (/ (- hi-color-index lo-color-index ) gap))) :element-type 'integer))) 
+
+(define-condition nil-color-index ()())
+
+(defmacro define-color-function(lo-color-index hi-color-index gap)
+  `(defun find-rgb(color-index)
+     (restart-case
+	 (progn
+	   (unless color-index (error 'nil-color-index))
+	   (let ((min ,lo-color-index)(max ,hi-color-index)(gap ,gap))
+	     (flet ((find-component(color-array)
+		      (/
+		       (min 255
+			    (max 0
+				 (round
+				  (cond ((and (>= color-index min) (< color-index max))
+					 (multiple-value-bind (index frac) (floor (/ (- color-index min) gap))
+					   (let ((locolor (aref color-array index)) (hicolor (aref color-array (1+ index))))
+					     (+ locolor (* frac (- hicolor locolor))))))
+					((< color-index min)
+					 (- (aref color-array 0) (* (- (aref color-array 1) (aref color-array 0)) (/ (- min color-index) gap))))
+					(t
+					 (let ((max-dim (1- (length color-array))))
+					   (+ (aref color-array max-dim) (* (/ (- (aref color-array max-dim) (aref color-array (1- max-dim))) gap) (- color-index max))))))))) 
+		       255.0)))
+	       (values (find-component *star-colors-r*) (find-component *star-colors-g*) (find-component *star-colors-b*)))))
+       (assign-white ()
+	 (values 1.0 1.0 1.0)))))
+
+(defmacro define-star-colors(lo-color-index hi-color-index gap color-specs)
+  `(progn
+     (define-color-array ,lo-color-index ,hi-color-index ,gap r)
+     (define-color-array ,lo-color-index ,hi-color-index ,gap g)
+     (define-color-array ,lo-color-index ,hi-color-index ,gap b)
+     ,@(with-collector 
+	(!push)
+	(loop for (color-index rgb) in color-specs do
+	     (let ((index (round (/ (- color-index lo-color-index) gap))))
+	       (!push `(setf (aref *star-colors-r* ,index) (color-r ,rgb)))
+	       (!push `(setf (aref *star-colors-g* ,index) (color-g ,rgb)))
+	       (!push `(setf (aref *star-colors-b* ,index) (color-b ,rgb))))))
+     (define-color-function ,lo-color-index ,hi-color-index ,gap)))
+   	      
+(define-star-colors -0.40 2.00 0.05 
+		    ((-0.40 #x9bb2ff)(-0.35 #x9eb5ff)(-0.30 #xa3b9ff)(-0.25 #xaabfff)
+		     (-0.20 #xb2c5ff)(-0.15 #xbbccff)(-0.10 #xc4d2ff)(-0.05 #xccd8ff)
+		     (-0.00 #xd3ddff)(0.05 #xdae2ff)(0.10 #xdfe5ff)(0.15 #xe4e9ff)
+		     (0.20 #xe9ecff)(0.25 #xeeefff)(0.30 #xf3f2ff)(0.35 #xf8f6ff)
+		     (0.40 #xfef9ff)(0.45 #xfff9fb)(0.50 #xfff7f5)(0.55 #xfff5ef)
+		     (0.60 #xfff3ea)(0.65 #xfff1e5)(0.70 #xffefe0)(0.75 #xffeddb)
+		     (0.80 #xffebd6)(0.85 #xffe9d2)(0.90 #xffe8ce)(0.95 #xffe6ca)
+		     (1.00 #xffe5c6)(1.05 #xffe3c3)(1.10 #xffe2bf)(1.15 #xffe0bb)
+		     (1.20 #xffdfb8)(1.25 #xffddb4)(1.30 #xffdbb0)(1.35 #xffdaad)
+		     (1.40 #xffd8a9)(1.45 #xffd6a5)(1.50 #xffd5a1)(1.55 #xffd29c)
+		     (1.60 #xffd096)(1.65 #xffcc8f)(1.70 #xffc885)(1.75 #xffc178)
+		     (1.80 #xffb765)(1.85 #xffa94b)(1.90 #xff9523)(1.95 #xff7b00)
+		     (2.00 #xff5200)))
+
 (with-full-eval
 
   (defun degrees(num-degrees)
@@ -509,14 +577,44 @@
   `(let ((*astro-date* (astro-date ,year ,month ,day ,hour ,minute ,second ,dst ,tz)))
      ,@body))
 
+(defun hsl-to-rgb(h s l)
+
+  (if (= s 0.0)
+      (values l l l)
+      (flet ((hue-to-rgb(p q tt)
+	       (when (< tt 0.0) 
+		 (incf tt 1.0))
+	       (when (> tt 1.0)
+		 (decf tt 1.0))
+	       (cond 
+		 ((< tt 1/6) (+ p (* (- q p) 6 tt)))
+		 ((< tt 1/2) q)
+		 ((< tt 2/3) (+ p  (* (- q p)  (- 2/3  tt) 6)))
+		 (tt p))))
+
+        (let ((q (if (< l 0.5) 
+		     (* l  (+ 1  s))  
+		     (- (+ l s) (* l  s)))))
+	  (let ((p (- (* 2 l) q)))
+
+	    (values (hue-to-rgb p q (+ h  1/3))
+		    (hue-to-rgb p q h)
+		    (hue-to-rgb p q (- h  1/3))))))))
+	
 (defun draw-stars(stars)
   (with-pushed-matrix
     (loop for star in stars do
-	 (with-slots (dec ra magnitude) star
-	   (when-visible (x y z) (dec ra)
-	     (gl:point-size (1+ (- *limiting-magnitude* magnitude)))
-	     (with-points
-	       (vertex x y z)))))))
+	 (with-slots (star-name dec ra magnitude color-index) star
+	   (handler-bind
+	       ((nil-color-index  (lambda(c) (declare (ignore c))
+					 ;(format t "INVOKING assign-white restart for ~a:~a:~a:~a:~a~%" star-name dec ra magnitude color-index)
+					 (invoke-restart 'assign-white))))
+	     (when-visible (x y z) (dec ra)
+	       (gl:point-size (1+ (- *limiting-magnitude* magnitude)))
+	       (with-points
+		 (multiple-value-bind (r g b) (find-rgb color-index)
+		   (color r g b))
+		 (vertex x y z))))))))
 				   
 (defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
 
@@ -565,9 +663,9 @@
     (with-sky (45 81 0.99)
       (loop for star in stars
 	 do
-	   (with-slots (dec ra star-name) star 
+	   (with-slots (dec ra star-name color-index) star 
 	     (when-visible (x y z)(dec ra) 
-	       (format t "~a:~a:~a:~a:~a:~a~%" star-name dec ra x y z)))))))
+	       (format t "~a:~a:~a:~a:~a:~a:~a~%" star-name dec ra x y z color-index)))))))
 
 (defun i-test-stars()
   (macroexpand-1
@@ -580,4 +678,4 @@
       (with-star-db(stars)
 	(with-frames ()
 	  (with-sky (41 85 0.98)
-	    (draw-stars stars))))))) 
+	    (draw-stars stars)))))))
