@@ -13,7 +13,6 @@
 	   :post-fix
 	   :debug-print
 	   :debug-print-str
-	   :with-no-package-lock
 	   :make-tree
 	   :[]
 	   :[nil]
@@ -81,7 +80,8 @@
 	   :repeat-apply
 	   :filled-list
 	   :with-full-eval
-	   :define-specials))
+	   :define-specials
+	   :with-collector))
 
 (in-package :utility)
 
@@ -155,11 +155,6 @@
     (format t "{~1a}" x)
     x))
 
-(defmacro with-no-package-lock(fnlocked &body frm)
-  `(locally (declare (sb-ext:disable-package-locks ,fnlocked))
-     ,@frm
-     (declare (sb-ext:enable-package-locks ,fnlocked))))
-    
 (defun make-tree( data-tree &optional (fkey (lambda(x)x)))
   (labels ((make-tree-rec(seq tree-acc acc o-prev)
 	     (if (not seq)
@@ -518,4 +513,12 @@
 		   `(defun ,print-specials-function ()
 		      ,@(loop for (name value) in special-specs collecting
 			     `(format t "~a:~a~%" ,(symbol-name name) ,name)))))))) 
-     
+ 
+(defmacro with-collector((pusher) &body body)
+  (with-gensyms (!collector-var !obj)
+    `(let ((,!collector-var))
+       (macrolet ((,pusher (,!obj)
+		    `(push ,,!obj ,',!collector-var)))
+	 ,@body
+	 (reverse ,!collector-var)))))
+
