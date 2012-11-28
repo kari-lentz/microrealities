@@ -569,30 +569,6 @@
 (defmacro with-astro-date((year month day &optional (hour 0) (minute 0) (second 0) dst (tz 0)) &body body) 
   `(let ((*astro-date* (astro-date ,year ,month ,day ,hour ,minute ,second ,dst ,tz)))
      ,@body))
-
-(defun hsl-to-rgb(h s l)
-
-  (if (= s 0.0)
-      (values l l l)
-      (flet ((hue-to-rgb(p q tt)
-	       (when (< tt 0.0) 
-		 (incf tt 1.0))
-	       (when (> tt 1.0)
-		 (decf tt 1.0))
-	       (cond 
-		 ((< tt 1/6) (+ p (* (- q p) 6 tt)))
-		 ((< tt 1/2) q)
-		 ((< tt 2/3) (+ p  (* (- q p)  (- 2/3  tt) 6)))
-		 (tt p))))
-
-        (let ((q (if (< l 0.5) 
-		     (* l  (+ 1  s))  
-		     (- (+ l s) (* l  s)))))
-	  (let ((p (- (* 2 l) q)))
-
-	    (values (hue-to-rgb p q (+ h  1/3))
-		    (hue-to-rgb p q h)
-		    (hue-to-rgb p q (- h  1/3))))))))
 	
 (defun draw-stars(stars)
   (with-pushed-matrix
