@@ -135,8 +135,9 @@
 
 (define-with-primitives points triangle quad-strip triangle-strip triangle-fan quads)
 
-(defmacro assign-light(index x y z w)
-    `(light ,(to-keyword (.sym 'light index)) :position (vector ,x ,y ,z ,w)))
+(defun assign-light(index x y z w)
+  (let ((!light (to-keyword (.sym 'light index)))) 
+    (light !light :position (vector x y z w))))
 
 (defun assign-texture(texture-id pf)
   (let ((texture-data (map 'vector (lambda(x)x) (jpeg:decode-image pf))))
@@ -154,6 +155,15 @@
      (loop for (pf texture-id) in (mapcar #'list (list ,@pfs) ,textures-name) do (assign-texture pf texture-id))       
      ,@body
      (gl:delete-textures ,textures-name))) 
+
+(defmacro with-emission(&body body)
+  `(progn
+     (material :front :ambient-and-diffuse '(0.0 0.0 0.0 0.0))
+     ,@body
+     (material :front :emission '(0.0 0.0 0.0 0.0))))
+
+(defun set-color-emissive(r g b)
+  (material :front :emission (list r g b 0.0)))
 
 (defparameter *texture-id* nil)
 (defparameter *texture-maps* "/home/klentz/runtime/my-opengl/")
@@ -571,30 +581,26 @@
      ,@body))
 	
 (defun draw-stars(stars)
-  (with-pushed-matrix
-    (loop for star in stars do
-	 (with-slots (star-name dec ra magnitude color-index) star
-	   (handler-bind
-	       ((nil-color-index  (lambda(c) (declare (ignore c))
-					 ;(format t "INVOKING assign-white restart for ~a:~a:~a:~a:~a~%" star-name dec ra magnitude color-index)
-					 (invoke-restart 'assign-white))))
-	     (when-visible (x y z) (dec ra)
-	       (gl:point-size (1+ (- *limiting-magnitude* magnitude)))
-	       ;(color-material :front :emission)
-	       (with-points
-		 (multiple-value-bind (r g b) (find-rgb color-index)
-		   (color r g b))
-		 (vertex x y z))))))))
+  (with-emission
+    (with-pushed-matrix
+      (loop for star in stars do
+	   (with-slots (star-name dec ra magnitude color-index) star
+	     (handler-bind
+		 ((nil-color-index  (lambda(c) (declare (ignore c))
+					;(format t "INVOKING assign-white restart for ~a:~a:~a:~a:~a~%" star-name dec ra magnitude color-index)
+					   (invoke-restart 'assign-white))))
+	       (when-visible (x y z) (dec ra)
+		 (gl:point-size (1+ (- *limiting-magnitude* magnitude)))
+		 (with-points
+		   (multiple-value-bind (r g b) (find-rgb color-index)
+		     (set-color-emissive r g b))
+		   (vertex x y z)))))))))
 				   
 (defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
 
   (let ((distance 75)(*astro-date* (or astro-date (astro-date-now)))(fov 60)(min-z 1)(max-z 100))
 
     (with-scene (fov min-z max-z 640 480)
-
-      ;(assign-light 1 0 0 0 0)
-      (color-material :front-and-back :ambient-and-diffuse)
-      ;(color-material :back :ambient)
 
       (with-textures ((earth "earth.jpg"))
 
