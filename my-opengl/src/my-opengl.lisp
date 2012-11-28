@@ -186,7 +186,6 @@
 					  (sb-sys:serve-all-events 0))
 
 	   (restartable
-	     (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
 	   
 	     (gl:clear :color-buffer-bit :depth-buffer-bit)
 	     (gl:cull-face :back)
@@ -236,6 +235,9 @@
 	     (let ((,screen-ratio (/ *viewport-height* *viewport-width*))) 
 	       (let ((,height (* ,screen-ratio ,width)))
 		 (gl:frustum (- 0 ,width) ,width (- 0 ,height) ,height *min-z* *max-z*)))))
+
+	 (gl:enable :cull-face :lighting :light0 :depth-test :normalize :color-material :texture-2d)
+
 	 ,@body))))
 
 (defun display-scene-quad()  
