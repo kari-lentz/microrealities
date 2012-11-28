@@ -126,23 +126,14 @@
 	(normalize ,x ,y ,z)  
       ,@body))
 
-(defmacro with-points(&body body)
-  `(gl:with-primitives :points ,@body))
+(defmacro define-with-primitives(&rest primitive-types)
+  `(progn
+     ,@(loop for primitive-type in primitive-types
+	 collecting
+	   `(defmacro ,(.sym 'with- primitive-type)(&body body)
+	      `(gl:with-primitives ,',(to-keyword primitive-type) ,@body)))))
 
-(defmacro with-triangle(&body body)
-  `(gl:with-primitives :triangles ,@body))
-
-(defmacro with-quad-strip(&body body)
-  `(gl:with-primitives :quad-strip ,@body))
-
-(defmacro with-triangle-strip(&body body)
-  `(gl:with-primitives :triangle-strip ,@body))
-
-(defmacro with-triangle-fan(&body body)
-  `(gl:with-primitives :triangle-fan ,@body))
-
-(defmacro with-quads(&body body)
-  `(gl:with-primitives :quads ,@body))
+(define-with-primitives points triangle quad-strip triangle-strip triangle-fan quads)
 
 (defmacro assign-light(index x y z w)
     `(light ,(to-keyword (.sym 'light index)) :position (vector ,x ,y ,z ,w)))
@@ -611,6 +602,7 @@
 					 (invoke-restart 'assign-white))))
 	     (when-visible (x y z) (dec ra)
 	       (gl:point-size (1+ (- *limiting-magnitude* magnitude)))
+	       ;(color-material :front :emission)
 	       (with-points
 		 (multiple-value-bind (r g b) (find-rgb color-index)
 		   (color r g b))
@@ -623,7 +615,8 @@
     (with-scene (fov min-z max-z 640 480)
 
       ;(assign-light 1 0 0 0 0)
-      (color-material :front :ambient-and-diffuse)
+      (color-material :front-and-back :ambient-and-diffuse)
+      ;(color-material :back :ambient)
 
       (with-textures ((earth "earth.jpg"))
 
@@ -672,10 +665,10 @@
    `(with-sky (45 81 60 0.99)
       (format t "~a~%" (when-above-horizon (degrees 30) (hours 12))))))
 
-(defun display-stars()
-  (let ((*limiting-magnitude* 3.5))
+(defun display-stars(&optional (latitude 40) (longitude 80) astro-date)
+  (let ((*limiting-magnitude* 3.5)(*astro-date* (or astro-date (astro-date-now))))
     (with-scene (60 1 100 640 480)
       (with-star-db(stars)
 	(with-frames ()
-	  (with-sky (41 85 0.98)
+	  (with-sky (latitude longitude 0.98)
 	    (draw-stars stars)))))))
