@@ -261,7 +261,7 @@
     (zip-r nil lists)))  
 
 (defun .sym(&rest syms)
-  (multiple-value-bind (ret)(intern (apply 'concatenate 'string (loop for sym in syms collecting (format nil "~a" sym))))ret))
+  (nth-value 0 (intern (with-output-to-string (stream) (loop for string in syms do (princ string stream))))))
 
 (defun to-qualified-symbol( package name )
   (nth-value 0 (intern (symbol-name name) package)))
