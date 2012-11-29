@@ -529,7 +529,7 @@
 (defun make-sky-closure(latitude longitude fov min-z max-z ratio)
   (with-degrees (latitude longitude fov)
     (let ((sky-matrix (*m
-		       (raw-rotate-x (- +HALF-PI+ latitude))
+		       (raw-rotate-x (- latitude +HALF-PI+))
 		       (raw-rotate-z (- longitude (hours (gst *astro-date*)) +HALF-PI+))))
 	       (dot-product (-(cos fov)))
 	       (sky-limit (+ (* ratio max-z) (* (- 1 ratio) min-z))))
