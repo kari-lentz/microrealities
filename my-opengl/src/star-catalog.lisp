@@ -48,7 +48,7 @@
 	 (extract-objects *star-csv* 
 			  :class-factory #'star-entry 
 			  :field-specs '( (integer 0) (string 6) (double-float 7) (double-float 8) (double-float 10) (double-float 13))
-			  :filter-p (lambda(o) (<= (magnitude o) 8.0)))))
+			  :filter-p (lambda(o) (and (not (eq (sid o) 0)) (<= (magnitude o) 8.0))))))
     (cl-store:store stars *star-store*)))
 
 (defun initialize-stars(&optional filter)
