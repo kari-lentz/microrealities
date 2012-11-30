@@ -640,9 +640,9 @@
     (with-sky (45 81 0.99)
       (loop for star in stars
 	 do
-	   (with-slots (dec ra star-name color-index) star 
+	   (with-slots (dec ra star-name color-index magnitude) star 
 	     (when-visible (x y z)(dec ra) 
-	       (format t "~a:~a:~a:~a:~a:~a:~a~%" star-name dec ra x y z color-index)))))))
+	       (format t "~a:~a:~a:~a:~a:~a:~a:~a~%" star-name dec ra x y z color-index magnitude)))))))
 
 (defun i-test-stars()
   (macroexpand-1
@@ -656,3 +656,8 @@
 	(with-frames ()
 	  (with-sky (latitude longitude 0.98)
 	    (draw-stars stars)))))))
+
+(defun find-rogue-stars()
+  (with-star-db (stars)
+      (sort stars (lambda (star1 star2) (> (magnitude star1) (magnitude star2))))))
+	   
