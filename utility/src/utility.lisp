@@ -466,23 +466,25 @@
 	 `(let (,,@(mapcar (lambda(arg sym-arg-o) ``(,,arg ,,sym-arg-o)) args sym-args-o)) ;rewrite quotation with a let to old arguments
 	    ,,@body)))))
 
-(defmacro for-each-range((control-var upper-bound &optional (lower-bound 0) (step 1)) &body frms)
+(defmacro for-each-range((control-var upper-bound &optional (lower-bound 0) (step 1)) &body body)
   (with-gensyms (!upper-bound !step) 
     `(let ((,control-var ,lower-bound)(,!upper-bound ,upper-bound)(,!step ,step))
        (tagbody 
 	resume-loop
-	  ,@frms
-	  (incf ,control-var ,!step)
-	  (unless (>= ,control-var ,!upper-bound) (go resume-loop))))))
+	  (when (< ,control-var ,!upper-bound) 
+	    ,@body
+	    (incf ,control-var ,!step)
+	    (go resume-loop))))))
 
-(defmacro map-range((control-var upper-bound &optional (lower-bound 0) (step 1)) frm)
+(defmacro map-range((control-var upper-bound &optional (lower-bound 0) (step 1)) expr)
   (with-gensyms (!upper-bound !step !acc) 
     `(let ((,control-var ,lower-bound)(,!upper-bound ,upper-bound)(,!step ,step)(,!acc ,nil))
        (tagbody 
 	resume-loop
-	  (setf ,!acc (cons ,frm ,!acc))
-	  (incf ,control-var ,!step)
-	  (unless (>= ,control-var ,!upper-bound) (go resume-loop)))
+	  (when (< ,control-var ,!upper-bound)
+	    (push ,expr ,!acc)
+	    (incf ,control-var ,!step)
+	    (go resume-loop)))
        (reverse ,!acc))))
 
 (defun filled-list(num-elements &optional fill-value)
