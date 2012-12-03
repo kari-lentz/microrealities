@@ -81,7 +81,14 @@
 	   :filled-list
 	   :with-full-eval
 	   :define-specials
-	   :with-collector))
+	   :with-collector
+	   :aif
+	   :it
+	   :map-rows
+	   :with-regexes
+	   :get-first-atom
+	   :with-regex-matches
+	   :with-rebindings))
 
 (in-package :utility)
 
@@ -524,3 +531,40 @@
 	 ,@body
 	 (reverse ,!collector-var)))))
 
+(defmacro aif(test then &optional else)
+  `(let ((it ,test))
+     (if it ,then ,else)))
+
+(defmacro map-rows(lambda-list function list)
+  (with-gensyms (lambda-spec)
+    `(qmap (,lambda-spec) 
+	   (destructuring-bind ,lambda-list ,lambda-spec 
+	     ,function)
+	   ,list)))
+
+(defmacro with-regexes(regex-specs &body body)
+  `(let
+       ,(map-rows (var-name regex) `(,var-name (ppcre::create-scanner ,regex)) regex-specs)
+     ,@body))
+
+(with-full-eval
+  (defun get-first-atom(v)
+    (if (atom v)
+	v
+	(get-first-atom (car v)))))
+
+(defmacro with-regex-matches(regex string match-vars &body body)
+  `(aif (~ ,regex ,string)
+	(let ,(qmap (var num) 
+		    `(,(get-first-atom var)
+		      ,(if (atom var)
+			   `(funcall it ,num)
+			   (destructuring-bind (var place) var
+			     (declare (ignore var))
+			     `(funcall it ,place))))
+		    match-vars (range (1+ (length match-vars)) 1))  
+	  ,@body)))
+
+(defmacro with-rebindings(vars lambda-expr &body body)
+  `(let ,(qmap (var) `(,var (funcall ,lambda-expr ,var)) vars)
+     ,@body))
