@@ -1,8 +1,4 @@
-(defpackage :star-catalog
-  (:use :cl :utility :cl-store)
-  (:export initialize-stars star-entry))
-
-(in-package :star-catalog)
+(in-package :my-opengl)
 
 (defun str-handler(x)
   x)

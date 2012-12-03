@@ -1,8 +1,4 @@
-(defpackage :cities
-  (:use :cl :utility :cl-store)
-  (:export run initialize-cities))
-
-(in-package :cities)
+(in-package :my-opengl)
 
 (defun init-store(row-constructor store-file &optional filter)
   (handler-bind
