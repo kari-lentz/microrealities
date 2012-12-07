@@ -144,12 +144,6 @@
     (gl:tex-parameter :texture-2d :texture-border-color '(0 0 0 0))
     (gl:tex-image-2d :texture-2d 0 3 1024 512 0 :bgr :unsigned-byte texture-data)))
 
-(defmacro with-textures( (&rest pfs) textures-name &body body )
-  `(let ((,textures-name (gl:gen-textures (length (list ,@pfs)))))
-     (loop for (pf texture-id) in (mapcar #'list (list ,@pfs) ,textures-name) do (assign-texture pf texture-id))       
-     ,@body
-     (gl:delete-textures ,textures-name))) 
-
 (defmacro with-emission(&body body)
   `(progn
      (material :front :ambient-and-diffuse '(0.0 0.0 0.0 0.0))
