@@ -357,37 +357,54 @@
 
 (defconstant +slices+ 32)
 
-(defun draw-globe(radius &optional texture-id)
+(defmacro with-globe-points((x y z alt az) radius &body body)
 
-  (let ((fpoints (make-globe-points radius +slices+))(x-slices (1+ +slices+))(y-slices (1- (/ +slices+ 2))))
+  (with-once-only (radius)
+    (with-gensyms(fpoints draw-point)
+    
+      `(let ((,fpoints (make-globe-points ,radius +slices+))(x-slices (1+ +slices+))(y-slices (1- (/ +slices+ 2))))
 					;top triangle fan
+     
+	 (flet ((,draw-point(,x ,y ,z ,alt ,az)
+		  ,@body))
+      
+	   (flet ((draw-point-from-array(x-idx y-idx)
+		    (multiple-value-bind (x y z alt az)(funcall ,fpoints x-idx y-idx)
+		      (,draw-point x y z alt az))))
+	   
+	       (with-triangle-fan
+		 (,draw-point 0 0 radius 0 0)
+		 (for-each-range (n x-slices)
+		   (draw-point-from-array n 0)))
+	
+	       (with-quad-strip
+		 (for-each-range (n (1- y-slices))
+		   (for-each-range (m x-slices)
+		     (draw-point-from-array m n)
+		     (draw-point-from-array m (1+ n)))))
+	
+	       (with-triangle-fan
+		 (,draw-point 0 0 (- radius) PI 0)
+		 (for-each-range (n x-slices)
+		   (draw-point-from-array (- x-slices n 1) (1- y-slices))))))))))
 
-    (flet ((draw-point(x y z alt az)
-	     (tex-coord (/ az +TWO-PI+) (/ alt PI))
+(defun draw-planet(radius &optional texture-id)
+
+  (flet ((do-draw-with-texture()
+	   (using-texture texture-id
+	     (with-globe-points (x y z alt az) radius
+	       (tex-coord (/ az +TWO-PI+) (/ alt PI))
+	       (normal x y z)
+	       (vertex x y z))))
+	 (do-draw-with-no-texture()
+	   (with-globe-points (x y z alt az) radius
+	     (declare (ignore alt az))
 	     (normal x y z)
-	     (vertex x y z)))
-      	
-      (flet ((draw-point-from-array(x-idx y-idx)
-	       (multiple-value-bind (x y z alt az)(funcall fpoints x-idx y-idx)
-		 (draw-point x y z alt az))))
-	
-	(using-texture texture-id
+	     (vertex x y z))))
 
-	  (with-triangle-fan
-	    (draw-point 0 0 radius 0 0)
-	    (for-each-range (n x-slices)
-	      (draw-point-from-array n 0)))
-	
-	  (with-quad-strip
-	    (for-each-range (n (1- y-slices))
-	      (for-each-range (m x-slices)
-		(draw-point-from-array m n)
-		(draw-point-from-array m (1+ n)))))
-	
-	  (with-triangle-fan
-	    (draw-point 0 0 (- radius) PI 0)
-	    (for-each-range (n x-slices)
-	      (draw-point-from-array (- x-slices n 1) (1- y-slices)))))))))
+    (if texture-id
+	(do-draw-with-texture)
+	(do-draw-with-no-texture))))
 
 (defstruct gl-matrix cols rows values)
 
@@ -621,7 +638,7 @@
 		  (assign-light 0 x y z 0)))
 	    
 	      (rotate -180 0 0 1)
-	      (draw-globe 50.0 earth))))))))
+	      (draw-planet 50.0 earth))))))))
 	       		           
 (defun test-stars()
   (with-star-db (stars)
