@@ -357,7 +357,7 @@
 
 (defconstant +slices+ 32)
 
-(defmacro with-globe-points((x y z alt az) radius &body body)
+(defmacro with-sphere-points((x y z alt az) radius &body body)
 
   (with-once-only (radius)
     (with-gensyms(fpoints draw-point)
@@ -392,12 +392,12 @@
 
   (flet ((do-draw-with-texture()
 	   (using-texture texture-id
-	     (with-globe-points (x y z alt az) radius
+	     (with-sphere-points (x y z alt az) radius
 	       (tex-coord (/ az +TWO-PI+) (/ alt PI))
 	       (normal x y z)
 	       (vertex x y z))))
 	 (do-draw-with-no-texture()
-	   (with-globe-points (x y z alt az) radius
+	   (with-sphere-points (x y z alt az) radius
 	     (declare (ignore alt az))
 	     (normal x y z)
 	     (vertex x y z))))
@@ -603,7 +603,7 @@
 				   
 (defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
 
-  (let ((distance 75)(*astro-date* (or astro-date (astro-date-now)))(fov 60)(min-z 1)(max-z 100))
+  (let ((distance 75)(*astro-date* (or astro-date (astro-date-now)))(fov 60)(min-z 5)(max-z 1000))
 
     (with-scene (fov min-z max-z 640 480)
 
