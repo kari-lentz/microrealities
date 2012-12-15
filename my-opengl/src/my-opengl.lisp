@@ -357,6 +357,57 @@
 
 (defconstant +slices+ 32)
 
+(with-full-eval		      
+  (defstruct cylinder-surface x y theta)
+
+  (defmethod make-load-form ((self cylinder-surface) &optional environment)
+    (declare (ignore environment))
+    ;; Note that this definition only works because X and Y do not
+    ;; contain information which refers back to the object itself.
+    ;; For a more general solution to this problem, see revised example below.
+    `(make-cylinder-surface :x ,(cylinder-surface-x self) :y ,(cylinder-surface-y self) :theta ,(cylinder-surface-theta self)))) 
+
+(defmacro make-cylinder-points(radius slices)
+  (with-once-only(radius)
+    (let ((slices (eval slices)))
+      (let ((pts (make-array (1+ slices) :element-type 'cylinder-surface :initial-element (make-cylinder-surface :x 0.0 :y 0.0 :theta 0.0)))(delta-theta (/ +TWO-PI+ slices))) 
+	(for-each-range (slice (1+ slices))
+	  (let ((theta (* delta-theta (coerce slice 'double-float))))
+	    (setf (aref pts slice) (make-cylinder-surface :x (cos theta) :y (sin theta) :theta theta))))
+	(with-gensyms (n)
+	  `(lambda(,n)
+	     (unless (and (>= ,n 0) (<= ,n ,slices)) (error (% "slices needs to be from 0 to ~a" (1- ,slices)))) 
+	     (with-slots (x y theta)(aref ,pts ,n)
+	       (values (* ,radius x) (* ,radius y) theta))))))))	       
+ 
+(defun draw-cylinder(radius height)
+  (let ((fclosure (make-cylinder-points radius +slices+))(z- (* height -0.5))(z+ (* height 0.5)))
+    (macrolet ((with-x-y((x y) n &body body)
+		 (with-once-only (n)
+		   `(multiple-value-bind (,x ,y) (funcall fclosure ,n)
+		      ,@body))))		 
+    (with-triangle-fan
+      (vertex 0.0 0.0 z+)
+      (for-each-range (slice (1+ +slices+))
+	(with-x-y (x y) slice 
+		  (normal x y z+)
+		  (vertex x y z+))))
+    
+    (with-quad-strip
+      (for-each-range (slice (1+ +slices+))
+	(with-x-y (x y) slice
+		  (normal x y z+)
+		  (vertex x y z+)
+		  (normal x y z-)
+		  (vertex x y z-))))
+
+    (with-triangle-fan
+      (vertex 0.0 0.0 z-)
+      (for-each-range (slice (1+ +slices+))
+	(with-x-y (x y) (- +slices+ slice)
+		  (normal x y z-)
+		  (vertex x y z-)))))))
+
 (defmacro with-sphere-points((x y z alt az) radius &body body)
 
   (with-once-only (radius)
@@ -373,7 +424,7 @@
 		      (,draw-point x y z alt az))))
 	   
 	       (with-triangle-fan
-		 (,draw-point 0 0 radius 0 0)
+		 (,draw-point 0 0 ,radius 0 0)
 		 (for-each-range (n x-slices)
 		   (draw-point-from-array n 0)))
 	
@@ -384,10 +435,89 @@
 		     (draw-point-from-array m (1+ n)))))
 	
 	       (with-triangle-fan
-		 (,draw-point 0 0 (- radius) PI 0)
+		 (,draw-point 0 0 (- ,radius) PI 0)
 		 (for-each-range (n x-slices)
 		   (draw-point-from-array (- x-slices n 1) (1- y-slices))))))))))
 
+(defun display-scene-cylinder()
+  (with-scene (60 5 500)
+    (with-frames ()
+      (assign-light 0 100.0 100.0 100.0 0.0)
+      (translate 0.0 0.0 -150.0)
+      
+      (color 0.80 0.55 0.55)
+      (with-pushed-matrix
+	(rotate 45.0 0.0 1.0 1.0)
+	(cull-face :back)
+	(draw-cylinder 20.0 200.0))
+	
+      (cull-face :back)
+      (color 0.45 0.70 0.45)
+      (with-sphere-points (x y z alt az) 50
+	(declare (ignore alt az))
+	(normal x y z)
+	(vertex x y z)))))
+
+(defun draw-curved-shadow(depth-object-closure shadow-closure object-closure)
+  
+  (flet ((depth-object-function(f)
+	   (enable :stencil-test)
+	   (clear :stencil-buffer)
+	   (color-mask nil nil nil nil)
+	   (stencil-func :always #x01 #xff)
+	   (stencil-op :replace :keep :replace)
+	   (funcall f))
+	 (shadow-function(f)
+	   (depth-mask nil)
+	   (stencil-func :equal #x01 #xff)
+	   (stencil-op :keep :keep :invert)
+	   (cull-face :front)
+	   (funcall f)
+	   (stencil-func :always #x01 #xff)
+	   (stencil-op :keep :keep :invert)
+	   (cull-face :back)
+	   (funcall f))
+	 (object-function(f)
+	   (stencil-func :equal #x01 #xff)
+	   (stencil-op :keep :keep :keep)
+	   (color-mask t t t t)
+	   (depth-mask t)
+	   (depth-func :lequal)	   
+	   (cull-face :back)
+	   (funcall f)
+	   (depth-func :less)
+	   (disable :stencil-test)
+	   (stencil-func :never #x00 #x00)
+	   (stencil-op :keep :keep :keep)))
+    (depth-object-function depth-object-closure) 
+    (shadow-function shadow-closure)
+    (object-function object-closure)))
+
+(defmacro curved-shadow(depth-object-form shadow-form object-form)
+  `(draw-curved-shadow (lambda() ,depth-object-form) (lambda() ,shadow-form) (lambda() ,object-form)))
+
+(defun display-scene-stencil()
+
+  (with-scene (60 5 500)
+    (with-frames ()
+      (assign-light 0 100.0 100.0 100.0 0.0)
+
+      (translate 0.0 0.0 -150.0)
+      
+      (curved-shadow 
+       (with-sphere-points (x y z alt az) 50.0
+	 (declare (ignore alt az))
+	 (vertex x y z))
+       (with-pushed-matrix
+	 (rotate 45.0 0.0 1.0 1.0)
+	 (draw-cylinder 10.0 100.0))
+       (progn
+	 (color 0.45 0.70 0.45)
+	 (with-sphere-points (x y z alt az) 50.0
+	   (declare (ignore alt az))
+	   (normal x y z)
+	   (vertex x y z)))))))
+          
 (defun draw-planet(radius &optional texture-id)
 
   (flet ((do-draw-with-texture()
