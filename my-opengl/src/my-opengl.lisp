@@ -161,6 +161,66 @@
      (gl:bind-texture :texture-2d *texture-id*)
      ,@body))
 
+(defparameter *stencil-test* t)
+(defparameter *color-mask* `(t t t t))
+(defparameter *blending-p* nil)
+
+(defmacro with-no-color-mask(&body body)
+  (with-gensyms (color-mask)
+    `(let ((,color-mask *color-mask*))
+       (color-mask nil nil nil nil)
+       (let ((*color-mask* '(nil nil nil nil)))
+	 ,@body
+	 (apply #'color-mask ,color-mask)
+	 (setf *color-mask* ,color-mask)))))
+
+(defmacro with-no-depthmask(&body body)
+  (with-gensyms (value)
+    `(let ((,value (get-boolean :depth-writemask)))
+       (depth-mask nil)
+       ,@body
+       (depth-mask ,value))))
+
+(defmacro with-equal-depth(&body body)
+  (with-gensyms (value)
+    `(let ((,value (get-integer :depth-func)))
+       (depth-func :equal)
+       ,@body
+       (depth-func ,value))))
+
+(defun stencil-write()
+  (stencil-func :always #x01 #xff)
+  (stencil-op :replace :keep :replace))
+
+(defun stencil-read()
+  (stencil-func :equal #x01 #xff)
+  (stencil-op :keep :keep :keep))
+
+(defmacro with-stencil-buffer-protect(&body body)
+  (with-gensyms (stencil-test-p stencil-func stencil-value-mask stencil-ref stencil-fail stencil-pass-depth-fail stencil-pass-depth-pass)
+    `(let ((,stencil-test-p *stencil-test*))
+      (enable :stencil-test)
+      (setf *stencil-test* t)
+      (let ((,stencil-func (get-integer :stencil-func))(,stencil-value-mask (get-integer :stencil-value-mask))(,stencil-ref (get-integer :stencil-ref))(,stencil-fail (get-integer :stencil-fail))(,stencil-pass-depth-fail (get-integer :stencil-pass-depth-fail))(,stencil-pass-depth-pass (get-integer :stencil-pass-depth-pass)))
+	,@body
+       (stencil-func ,stencil-func ,stencil-ref ,stencil-value-mask)
+       (stencil-op ,stencil-fail ,stencil-pass-depth-fail ,stencil-pass-depth-pass))
+       (unless ,stencil-test-p
+	 (disable :stencil-test)
+	 (setf *stencil-test* nil)))))
+
+(defmacro with-blending((&optional (blend-src :src-alpha) (blend-dest :one-minus-src-alpha)) &body body)
+  (with-gensyms (orig-blend-src orig-blend-dest)
+    `(progn
+       (let ((*blending-p* t))
+	 (enable :blend)
+	 (let ((,orig-blend-src (get-integer :blend-src))(,orig-blend-dest (get-integer :blend-dst)))
+	   (blend-func ,blend-src ,blend-dest)
+	   ,@body
+	   (blend-func ,orig-blend-src ,orig-blend-dest)))
+       (unless *blending-p*
+	 (disable :blend)))))
+
 (defmacro restartable (&body body)
   "helper macro since we use continue restarts a lot
  (remember to hit C in slime or pick the restart so errors don't kill the app)"
@@ -517,7 +577,98 @@
 	   (declare (ignore alt az))
 	   (normal x y z)
 	   (vertex x y z)))))))
-          
+
+(defun map-cities%(texture-id &optional (tex-width 1024) (tex-height 512))
+  (let ((tex-map (make-array (* 2 tex-width tex-height) :element-type 'integer)))
+    (flet ((pt (x y)
+	     (let ((x (round x))(y (round y)))
+	       (cond ((>= x tex-width) (setf x (- x tex-width)))
+		     ((< x 0) (setf x (+ x tex-width))))
+	       (cond ((>= y tex-height) (setf y (- y tex-height)))
+		     ((< y 0) (setf y (+ y tex-height))))
+	       (let ((loc (* 2 (+ (* tex-height y) x))))
+		 (setf (aref tex-map loc) #x01)
+		 (setf (aref tex-map (1+ loc)) #x01)))))
+      (flet ((plot-city (latitude longitude population)
+	       (let ((xo (* (/ (- 180.0 longitude) 360.0) tex-width))(yo (* (/ (- 90 latitude) 180.0) 90)))
+		 (let ((radius (floor (sqrt (/ population 1000000 PI)))))
+		   (let ((radius-squared (* radius radius)))
+		     (if (= radius 1)
+			 (pt xo yo)
+			 (for-each-range (y radius (- radius))  
+			   (let ((xmag (sqrt (- radius-squared (* y y)))))
+			     (for-each-range (x (+ xo xmag) (- xo xmag))
+			       (pt x (+ y yo)))))))))))
+	(loop for city in (initialize-cities)
+	   do
+	     (with-slots (latitude longitude population) city
+	       (plot-city latitude longitude population)))
+	
+	(gl:bind-texture :texture-2d texture-id)
+	(gl:tex-parameter :texture-2d :texture-min-filter :linear)
+	;; these are actually the defaults, just here for reference
+	(gl:tex-parameter :texture-2d :texture-mag-filter :linear)
+	(gl:tex-parameter :texture-2d :texture-wrap-s :clamp-to-edge)
+	(gl:tex-parameter :texture-2d :texture-wrap-t :clamp-to-edge)
+	(gl:tex-parameter :texture-2d :texture-border-color '(0 0 0 0))
+	(gl:tex-image-2d :texture-2d 0 3 1024 512 0 :bgr :unsigned-byte tex-map)))))
+
+; type one of :color stencil
+;
+(defmacro define-map-cities(type)
+  `(defun map-cities(texture-id &optional (tex-width 1024) (tex-height 512))
+     (let ((tex-map (make-array (* ,(case type (:alpha 4) (:color 3) (:stencil 2)) tex-width tex-height) :element-type 'integer :initial-element #x00)))
+       (flet ((pt (x y)
+		(let ((x (round x))(y (round y)))
+		  (cond ((>= x tex-width) (setf x (- x tex-width)))
+			((< x 0) (setf x (+ x tex-width))))
+		  (cond ((>= y tex-height) (setf y (- y tex-height)))
+			((< y 0) (setf y (+ y tex-height))))
+		  ,(case type 
+			 (:alpha
+			  `(let ((loc (* 4 (+ (* tex-width y) x))))
+			     (setf (aref tex-map loc) #xff)
+			     (setf (aref tex-map (1+ loc)) #xff)
+			     (setf (aref tex-map (+ 2 loc)) #xff)
+			     (setf (aref tex-map (+ 3 loc)) #xff)))
+			 (:color
+			  `(let ((loc (* 3 (+ (* tex-width y) x))))
+			     (setf (aref tex-map loc) #x00)
+			     (setf (aref tex-map (1+ loc)) #x00)
+			     (setf (aref tex-map (+ 2 loc)) #xff))) 
+			 (:stencil
+			  `(let ((loc (* 2 (+ (* tex-width y) x))))
+			     (setf (aref tex-map loc) #x01)
+			     (setf (aref tex-map (1+ loc)) #x01)))))))
+	 (flet ((plot-city (latitude longitude population)
+		  (let ((xo (* (/ (- 180.0 longitude) 360.0) tex-width))(yo (* (/ (- 90 latitude) 180.0) tex-height)))
+		    (let ((radius (floor (sqrt (/ population 1000000 PI)))))
+		      (let ((radius-squared (* radius radius)))
+			(if (= radius 1)
+			    (pt xo yo)
+			    (for-each-range (y radius (- radius))  
+			      (let ((xmag (sqrt (- radius-squared (* y y)))))
+				(for-each-range (x (+ xo xmag) (- xo xmag))
+				  (pt x (+ y yo)))))))))))
+	   (loop for city in (initialize-cities)
+	      do
+		(with-slots (latitude longitude population) city
+		  (plot-city latitude longitude population)))
+	   
+	   (gl:bind-texture :texture-2d texture-id)
+	   (gl:tex-parameter :texture-2d :texture-min-filter :linear)
+	   ;; these are actually the defaults, just here for reference
+	   (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
+	   (gl:tex-parameter :texture-2d :texture-wrap-s :clamp-to-edge)
+	   (gl:tex-parameter :texture-2d :texture-wrap-t :clamp-to-edge)
+	   (gl:tex-parameter :texture-2d :texture-border-color '(0 0 0 0))
+	   ,(case type 
+		  (:alpha `(gl:tex-image-2d :texture-2d 0 4 1024 512 0 :bgra :unsigned-byte tex-map))
+		  (:color `(gl:tex-image-2d :texture-2d 0 3 1024 512 0 :bgr :unsigned-byte tex-map))
+		  (:stencil `(gl:tex-image-2d :texture-2d 0 2 1024 512 0 :depth-stencil :unsigned-byte tex-map))))))))
+
+(define-map-cities :alpha)
+
 (defun draw-planet(radius &optional texture-id)
 
   (flet ((do-draw-with-texture()
@@ -535,6 +686,65 @@
     (if texture-id
 	(do-draw-with-texture)
 	(do-draw-with-no-texture))))
+
+; with-textures
+;
+; texture-specs are of the form (texture-symbol "path/to/file.bmp")
+;
+(defun draw-earth%%(radius texture-id &optional (tex-width 1024) (tex-height 512))
+  (draw-planet radius texture-id)
+  (destructuring-bind (city-texture)
+      (gl:gen-textures 1)
+    (map-cities tex-width tex-height city-texture)
+    (with-stencil-buffer-protect
+      (with-no-depthmask
+	  (with-equal-depth
+	    (using-texture city-texture
+	      (stencil-write)
+	      (draw-planet radius city-texture))
+	    (with-emission 
+	      (stencil-read)
+	      (set-color-emissive 1.0 1.0 1.0)
+	      (draw-planet radius)))))
+    (gl:delete-textures (list city-texture))))
+
+; with-textures
+;
+; texture-specs are of the form (texture-symbol "path/to/file.bmp")
+;
+(defun draw-earth%(radius texture-id &optional (tex-width 1024) (tex-height 512))
+  (draw-planet radius texture-id)
+  (destructuring-bind (city-texture)
+      (gl:gen-textures 1)
+    (map-cities tex-width tex-height city-texture)
+    (with-stencil-buffer-protect
+      (with-no-depthmask
+	  (with-equal-depth
+	    (using-texture city-texture
+	      (stencil-write)
+	      (draw-planet radius city-texture))
+	    (with-emission 
+	      (stencil-read)
+	      (set-color-emissive 1.0 1.0 1.0)
+	      (draw-planet radius)))))
+    (gl:delete-textures (list city-texture))))
+
+; with-textures
+;
+; texture-specs are of the form (texture-symbol "path/to/file.bmp")
+;
+(defun draw-earth(radius texture-id)
+  (draw-planet radius texture-id)
+  (destructuring-bind (city-texture)
+      (gl:gen-textures 1)
+    (map-cities city-texture)
+    (with-blending ()
+      (with-no-depthmask
+	(with-equal-depth
+	  (with-emission
+	    (set-color-emissive 1.0 1.0 1.0) 
+	    (draw-planet radius city-texture))))
+      (gl:delete-textures (list city-texture)))))
 
 (defstruct gl-matrix cols rows values)
 
@@ -768,7 +978,7 @@
 		  (assign-light 0 x y z 0)))
 	    
 	      (rotate -180 0 0 1)
-	      (draw-planet 50.0 earth))))))))
+	      (draw-earth 50.0 earth))))))))
 	       		           
 (defun test-stars()
   (with-star-db (stars)
