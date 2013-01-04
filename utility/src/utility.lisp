@@ -88,7 +88,8 @@
 	   :with-regexes
 	   :get-first-atom
 	   :with-regex-matches
-	   :with-rebindings))
+	   :with-rebindings
+	   :dlambda))
 
 (in-package :utility)
 
@@ -568,3 +569,11 @@
 (defmacro with-rebindings(vars lambda-expr &body body)
   `(let ,(qmap (var) `(,var (funcall ,lambda-expr ,var)) vars)
      ,@body))
+
+(defmacro dlambda(&rest function-specs)
+  (with-gensyms (key args)
+    `(lambda(,key &rest ,args)
+       (case ,key
+	 ,@(map-rows (function-key lambda-list &rest body)
+		     `(,function-key (apply (lambda(,@lambda-list) ,@body) ,args)) 
+		     function-specs)))))
