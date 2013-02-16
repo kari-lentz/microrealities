@@ -1,0 +1,6 @@
+[submodule "utility"]
+	path = utility
+	url = git@github.com:kari-lentz/utility.git
+[submodule "astrolib"]
+	path = astrolib
+	url = git@github.com:kari-lentz/astrolib.git
