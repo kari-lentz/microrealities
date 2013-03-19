@@ -181,10 +181,11 @@
     ((eq (length args) 4)  `(make-gl-vector ,@(qmap (arg) `(float ,arg) args)))
     (t (error 'bad-arguments)))) 
 
-(defmacro ROT(xyz (angle &optional (units 'radians)) &optional gl-matrix)
+(defmacro ROT(xyz (angle &optional (units :radians)) &optional gl-matrix)
   (unless (find xyz '(x y z)) (error 'bad-arguments :msg "xyz something other than [xyz]"))
-  (unless (find units '(radians degrees)) (error 'bad-arguments :msg "units must be radians or degrees"))
-  (let ((rot-mat `(,(.sym 'raw-rotate- xyz) ,(if (eq units 'degrees) `(degrees ,angle) angle))))
+  (unless (find units '(:radians :degrees)) (error 'bad-arguments :msg "units must be :radians or :degrees"))
+  (let ((rot-mat `(,(.sym 'raw-rotate- xyz) 
+		    ,(if (eq units :degrees) `(degrees ,angle) angle))))
     (if gl-matrix
 	`(*m ,rot-mat ,gl-matrix)
 	rot-mat)))

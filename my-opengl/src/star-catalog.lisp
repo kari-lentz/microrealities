@@ -14,7 +14,7 @@
 (defun parse-any( str type )
   (funcall ([] *type-stream-decoders* type) str))
 
-(defeasyclass star-entry () (sid star-name ra dec magnitude color-index))
+(defeasyclass star-entry () (sid star-name ra dec magnitude color-index) :export-all t)
 
 (defclass star-catalog ()
   ((stars :initform nil :initarg :stars :accessor stars)))
