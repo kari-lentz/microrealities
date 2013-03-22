@@ -1,4 +1,4 @@
-(in-package :my-opengl)
+(in-package :star-catalog)
 
 (defun str-handler(x)
   x)

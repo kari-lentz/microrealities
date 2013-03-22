@@ -1,4 +1,4 @@
-(in-package :my-opengl)
+(in-package :cities)
 
 (defun init-store(row-constructor store-file &optional filter)
   (handler-bind

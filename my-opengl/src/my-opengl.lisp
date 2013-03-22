@@ -404,6 +404,7 @@
   (defstruct cylinder-surface x y theta)
 
   (defmethod make-load-form ((self cylinder-surface) &optional environment)
+
     (declare (ignore environment))
     ;; Note that this definition only works because X and Y do not
     ;; contain information which refers back to the object itself.
@@ -749,10 +750,6 @@
 			       (map-range (n 4)
 					  (format nil "~a" (aref values n))))))
 		(otherwise (format nil "illegal dimensions")))))))
-
-(defmacro with-astro-date((year month day &optional (hour 0) (minute 0) (second 0) dst (tz 0)) &body body) 
-  `(let ((*astro-date* (astro-date ,year ,month ,day ,hour ,minute ,second ,dst ,tz)))
-     ,@body))
 	
 (defun draw-stars(stars)
   (with-emission
