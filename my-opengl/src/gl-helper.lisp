@@ -1,9 +1,7 @@
 (in-package :my-opengl)
 
 (defconstant +aspect+ 1.0)
-(defconstant +TWO-PI+ (* 2 PI))
-(defconstant +HALF-PI+ (* 0.5 PI))
-(defconstant +TWILIGHT+ (* (/ -18.0) PI))
+(defconstant +TWILIGHT+ (* (/ -0.0 180.0) PI))
 
 (define-specials ((*viewport-width* 640)
 		(*viewport-height* 480)
@@ -27,12 +25,6 @@
 (defstruct gl-matrix cols rows values)
 
 (with-full-eval
-
-  (defun radians-to-degrees(num-radians)
-    (* (/ num-radians PI) 180.0))
-
-  (defun degrees(num-degrees)
-    (* (/ num-degrees 180) PI))
 
   (defun hours(num-hours)
     (* (/ num-hours 24.0) +TWO-PI+))
@@ -71,120 +63,18 @@
 	(normalize ,x ,y ,z)  
       ,@body))
 
-(defun make-gl-identity-matrix()
-  (let ((dims 4))
-    (make-gl-matrix
-     :cols dims
-     :rows dims
-     :values
-     (make-array (* dims dims) :element-type 'float
-		 :initial-contents 
-		 `(
-		   1.0d0 0.0d0 0.0d0 0.0d0
-			 0.0d0 1.0d0 0.0d0 0.0d0
-			 0.0d0 0.0d0 1.0d0 0.0d0
-			 0.0d0 0.0d0 0.0d0 1.0d0)))))
-  
-(defun make-gl-vector(x y z w)
-  (make-gl-matrix
-   :cols 1 
-   :rows 4
-   :values
-   (make-array 4 :element-type 'float
-	       :initial-contents `(,x ,y ,z ,w))))
-
 (defun gl-vector-from-astro-vector(astro-vector)
   (let ((v (astro-vector-eq astro-vector)))
-    (make-gl-vector (aref v 0) (aref v 1) (aref v 2) 1.0)))
-
-(defun get-gl-value(gl-matrix row col)
-  (aref 
-   (gl-matrix-values gl-matrix)
-   (+ (* row (gl-matrix-cols gl-matrix)) col)))
-
-(defun set-gl-value(gl-matrix row col value)
-  (setf
-   (aref 
-    (gl-matrix-values gl-matrix)
-    (+ (* row (gl-matrix-cols gl-matrix)) col))
-   value))
-
-(defsetf get-gl-value set-gl-value)
-
-(defmacro with-x-y-z-aref((x-symbol y-symbol z-symbol) vector &body body)
-  (with-once-only (vector)
-    `(let ((,x-symbol (aref ,vector 0))(,y-symbol (aref ,vector 1))(,z-symbol (aref ,vector 2))) 
-       ,@body)))
-
-(defmacro with-x-y-z((x-symbol y-symbol z-symbol) gl-vector &body body)
-  (with-gensyms (!v)
-    (with-once-only (gl-vector)
-      `(let ((,!v (gl-matrix-values ,gl-vector)))
-	 (let ((,x-symbol (aref ,!v 0))(,y-symbol (aref ,!v 1))(,z-symbol (aref ,!v 2))) 
-	   ,@body)))))
-
-(defun gl-matrix-multiply (matrix-1 matrix-2)
-  (unless (eq (gl-matrix-cols matrix-1) (gl-matrix-rows matrix-2)) (error "matrix multiplcation has left cols mismatching right rows"))
-  (let ((rows (gl-matrix-rows matrix-1))(cols (gl-matrix-cols matrix-2)))
-    (let ((ret (make-gl-matrix :cols cols :rows rows :values (make-array (* cols rows) :initial-element 0.0))))
-      (for-each-range (row rows)
-	(for-each-range (col cols)
-	  (let ((total 0))
-	    (for-each-range (x (gl-matrix-cols matrix-1))
-	      (incf total (* (get-gl-value matrix-1 row x) (get-gl-value matrix-2 x col))))
-	    (setf (get-gl-value ret row col) total))))
-      ret)))
-
-(defun scale-gl-matrix(matrix scaling)
-  (let ((cols (gl-matrix-cols matrix))(rows (gl-matrix-rows matrix)))
-    (let ((ret (make-gl-matrix :cols cols :rows rows :values (make-array (* cols rows) :initial-element 0.0))))
-      (for-each-range (row rows)
-	(for-each-range (col cols)
-	  (setf (get-gl-value ret row col) (* scaling (get-gl-value matrix row col)))))
-      ret)))
-
-(defun *m (&rest matrices)
-  (reduce (lambda(x y) (gl-matrix-multiply y x)) (reverse matrices)))
-
-(defun raw-rotate-z(ang)
-  (let ((ret (make-gl-identity-matrix)))
-    (setf (get-gl-value ret 0 0) (cos ang))
-    (setf (get-gl-value ret 0 1) (- (sin ang)))
-    (setf (get-gl-value ret 1 0) (sin ang))
-    (setf (get-gl-value ret 1 1) (cos ang))
-    ret))
-
-(defun raw-rotate-y(ang)
-  (let ((ret (make-gl-identity-matrix)))
-    (setf (get-gl-value ret 0 0) (cos ang))
-    (setf (get-gl-value ret 0 2) (sin ang))
-    (setf (get-gl-value ret 2 0) (- (sin ang)))
-    (setf (get-gl-value ret 2 2) (cos ang))
-    ret))
-
-(defun raw-rotate-x(ang)
-  (let ((ret (make-gl-identity-matrix)))
-    (setf (get-gl-value ret 1 1) (cos ang))
-    (setf (get-gl-value ret 1 2) (- (sin ang)))
-    (setf (get-gl-value ret 2 1) (sin ang))
-    (setf (get-gl-value ret 2 2) (cos ang))
-    ret))
+    (vector* (aref v 0) (aref v 1) (aref v 2) 1.0)))
 
 (define-condition bad-arguments (error)
   ((msg :initarg :msg :initform "see specs for GL matrix functions"  :reader msg))
   (:report (lambda (o stream) (format stream "bad argments: ~a" (msg o)))))
 
-(defmacro GL(&rest args)
-  (cond 
-    ((eq args nil) `(make-gl-identity-matrix))
-    ((eq (length args) 3)  `(make-gl-vector ,@(qmap (arg) `(float ,arg) args) 0.0))
-    ((eq (length args) 4)  `(make-gl-vector ,@(qmap (arg) `(float ,arg) args)))
-    (t (error 'bad-arguments)))) 
-
 (defmacro ROT(xyz (angle &optional (units :radians)) &optional gl-matrix)
   (unless (find xyz '(x y z)) (error 'bad-arguments :msg "xyz something other than [xyz]"))
   (unless (find units '(:radians :degrees)) (error 'bad-arguments :msg "units must be :radians or :degrees"))
-  (let ((rot-mat `(,(.sym 'raw-rotate- xyz) 
+  (let ((rot-mat `(,(.sym 'rotate- xyz) 
 		    ,(if (eq units :degrees) `(degrees ,angle) angle))))
     (if gl-matrix
 	`(*m ,rot-mat ,gl-matrix)

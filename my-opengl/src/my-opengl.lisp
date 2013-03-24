@@ -5,35 +5,15 @@
     (with-astro-date (astro-date)
       (let ((matrix
 	     (*m
-	      (raw-rotate-y (- latitude +HALF-PI+))
-	      (raw-rotate-z (- longitude (hours (gst *astro-date*)))))))
-	(dlambda (:xyz->xyz (x y z) 
-			    (with-x-y-z (x y z) (*m matrix (GL x y z))
-			      (values x y z)))
-		 (:celestial->xyz(dec ra)
-			     (let ((dec (- +HALF-PI+ (degrees dec)))(ra (hours ra)))
-			       (from-spherical (x y z 1.0 dec ra) 
-				 (with-x-y-z (x y z) (*m matrix (GL x y z))
-				   (values x y z)))))
-		 (:xyz->altaz(x y z)
-			       (multiple-value-bind (alt az)
-				 (with-x-y-z (x y z) (*m matrix (GL x y z))
-				   (cartesian-to-spherical x y z))
-				 (values (- +HALF-PI+ alt) az)))
-		 (:celestial->altaz(dec ra)
-				   (multiple-value-bind (alt az)
-				       (let ((dec (- +HALF-PI+ (degrees dec)))(ra (hours ra)))
-					 (from-spherical (x y z 1.0 dec ra) 
-					   (with-x-y-z (x y z) (*m matrix (GL x y z))
-					     (cartesian-to-spherical x y z))))
-				     (values (- +HALF-PI+ alt) az))))))))
+	      (rotate-y (- latitude +HALF-PI+))
+	      (rotate-z (- longitude (hours (gst *astro-date*)))))))
+	(lambda (vector) 
+	  (*m matrix vector))))))
 
 (defun plot-sun(latitude longitude &optional astro-date)
   (with-astro-date (astro-date)
     (let ((o (using-altaz-matrix latitude longitude astro-date)))
-      (with-x-y-z (x y z)  
-	  (gl-vector-from-astro-vector (sun-pos *astro-date*))
-	(funcall o :xyz->altaz x y z)))))
+	(funcall o (gl-vector-from-astro-vector (sun-pos *astro-date*))))))
   
 (defmacro color-r(rgb)
   `(ash ,rgb -16))
@@ -602,8 +582,10 @@
 	   (loop for city in (initialize-cities)
 	      do
 		(with-slots (latitude longitude population) city
-		  (if (< (nth-value 0 (plot-sun latitude longitude *astro-date*)) +TWILIGHT+)
-		      (plot-city latitude longitude population))))
+		  (with-celestial (radius dec ra) (plot-sun latitude longitude *astro-date*)
+		    (declare (ignore ra))
+		    (when (< dec +TWILIGHT+)
+		      (plot-city latitude longitude population)))))
 	   
 	   (gl:bind-texture :texture-2d texture-id)
 	   (gl:tex-parameter :texture-2d :texture-min-filter :linear)
@@ -704,21 +686,21 @@
 (defun make-sky-closure(latitude longitude fov min-z max-z ratio)
   (with-degrees (latitude longitude fov)
     (let ((sky-matrix (*m
-		       (raw-rotate-x (- latitude +HALF-PI+))
-		       (raw-rotate-z (- longitude (hours (gst *astro-date*)) +HALF-PI+))))
+		       (rotate-x (- latitude +HALF-PI+))
+		       (rotate-z (- longitude (hours (gst *astro-date*)) +HALF-PI+))))
 	       (dot-product (-(cos fov)))
 	       (sky-limit (+ (* ratio max-z) (* (- 1 ratio) min-z))))
       (lambda(dec ra action) 
 	(from-spherical (x y z 1.0 (- +HALF-PI+ (degrees dec)) (hours ra))
-	  (let ((v (*m sky-matrix (make-gl-vector x y z 0.0))))
-	    (when (>= dot-product (get-gl-value v 2 0))
-	      (funcall action (scale-gl-matrix v sky-limit)))))))))
+	  (let ((v (*m sky-matrix (cartesian x y z 0.0))))
+	    (when (>= dot-product ([m] v 0 2))
+	      (funcall action (mscale sky-limit v)))))))))
 
 (defmacro when-visible((x-symbol y-symbol z-symbol)(dec ra) &body body)
   (with-gensyms (!v)
     `(funcall *sky-closure* ,dec ,ra 
 	      (lambda(,!v)
-		(with-x-y-z (,x-symbol ,y-symbol ,z-symbol) ,!v
+		(with-xyz (,x-symbol ,y-symbol ,z-symbol) ,!v
 		  ,@body)))))
 
 (defmacro with-sky((latitude longitude ratio) &body body)
@@ -727,29 +709,6 @@
        ,@body)))
 	      
 (defparameter *cr-lf* (format nil "~%"))
-
-(defmethod print-object ((m gl-matrix) stream)
-  (let ((values (gl-matrix-values m)))
-    (format stream "<gl-matrix>~%~a"
-	    (let ((len (length values)))
-	      (case len
-		(16
-		 (let ((idx 0)(rows))
-		   (loop
-		      (unless (< idx len) (return))
-		      (push 
-		       (join " "
-			     (map-range (n 4) 
-					(format nil "~a" (aref values (+ idx n)))))
-		       rows)
-		      (incf idx 4))
-		   (join *cr-lf* (reverse rows))))
-		(4
-		 (format nil "~a"
-			 (join *cr-lf*
-			       (map-range (n 4)
-					  (format nil "~a" (aref values n))))))
-		(otherwise (format nil "illegal dimensions")))))))
 	
 (defun draw-stars(stars)
   (with-emission
@@ -800,7 +759,7 @@
 	      
 	      (with-pushed-matrix
 		(rotate (* -15.0 (gst *astro-date*) ) 0 0 1)
-		(with-x-y-z (x y z) (gl-vector-from-astro-vector (sun-pos *astro-date*))
+		(with-xyz (x y z) (gl-vector-from-astro-vector (sun-pos *astro-date*))
 		  (assign-light 0 x y z 0)))
 	    
 	      (rotate -180 0 0 1)

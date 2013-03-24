@@ -24,7 +24,7 @@
 (defparameter *cities-txt* (merge-pathnames "cities.txt" *my-opengl-system-path*))
 (defparameter *cities-store* (merge-pathnames "cities.store" *my-opengl-system-path*))
 
-(defeasyclass city () (name population latitude longitude) :export-all t)
+(defeasyclass city () (name population latitude longitude) :export-all nil)
 		
 (defun city-factory()
   
