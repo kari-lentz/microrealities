@@ -4,3 +4,6 @@
 [submodule "astrolib"]
 	path = astrolib
 	url = git@github.com:kari-lentz/astrolib.git
+[submodule "lispbuilder-sdl"]
+	path = lispbuilder-sdl
+	url = ./lispbuilder-sdl
