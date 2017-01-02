@@ -177,7 +177,7 @@
     `(progn
        (let ((*blending-p* t))
 	 (enable :blend)
-	 (let ((,orig-blend-src (get-integer :blend-src))(,orig-blend-dest (get-integer :blend-dst)))
+	 (let ((,orig-blend-src (get-integer :blend-src-alpha))(,orig-blend-dest (get-integer :blend-dst-alpha)))
 	   (blend-func ,blend-src ,blend-dest)
 	   ,@body
 	   (blend-func ,orig-blend-src ,orig-blend-dest)))
@@ -688,8 +688,8 @@
     (let ((sky-matrix (*m
 		       (rotate-x (- latitude +HALF-PI+))
 		       (rotate-z (- longitude (hours (gst *astro-date*)) +HALF-PI+))))
-	       (dot-product (-(cos fov)))
-	       (sky-limit (+ (* ratio max-z) (* (- 1 ratio) min-z))))
+	  (dot-product (-(cos fov)))
+	  (sky-limit (+ (* ratio max-z) (* (- 1 ratio) min-z))))
       (lambda(dec ra action) 
 	(from-spherical (x y z 1.0 (- +HALF-PI+ (degrees dec)) (hours ra))
 	  (let ((v (*m sky-matrix (cartesian x y z 0.0))))
@@ -725,7 +725,7 @@
 		   (multiple-value-bind (r g b) (find-rgb color-index)
 		     (set-color-emissive r g b))
 		   (vertex x y z)))))))))
-				   
+
 (defun display-globe(&optional (latitude 40) (longitude 80) astro-date)
 
   (let ((distance 75)(*astro-date* (or astro-date (astro-date-now)))(fov 60)(min-z 5)(max-z 1000))
@@ -790,4 +790,3 @@
 (defun find-rogue-stars()
   (with-star-db (stars)
       (sort stars (lambda (star1 star2) (> (magnitude star1) (magnitude star2))))))
-	  
